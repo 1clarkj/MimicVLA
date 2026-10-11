@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mimicvla"
+version = "0.1.0"
+description = "Human USB insertion demonstrations replayed on a Panda in MuJoCo"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "mujoco>=3.3,<4",
+    "mujoco-menagerie==2026.10.1",
+    "mink==1.1.0",
+    "numpy>=2,<2.3",
+    "scipy>=1.14,<2",
+    "imageio>=2.37,<3",
+    "imageio-ffmpeg>=0.6,<1",
+    "av==15.1.0",
+    "opencv-python-headless>=4.11,<5",
+    "matplotlib>=3.9,<4",
+]
+
+[project.scripts]
+mimicvla = "mimicvla.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10"]
+train = [
+    "lerobot[smolvla,training]==0.6.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mimicvla"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
