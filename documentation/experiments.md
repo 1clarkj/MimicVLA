@@ -1,7 +1,7 @@
 # Experiments
 
 Everything behind [RESULTS.md](../RESULTS.md): the full tables of every
-policy, the development history that led to the final protocol, and the
+policy, the early diagnostics that led to the final protocol, and the
 details of the data pipeline. Policy numbers are closed-loop MuJoCo
 rollouts, not demonstration replays. Recording and tracking are covered in
 [data_collection.md](data_collection.md).
@@ -228,95 +228,42 @@ Interpretation:
   generalisation ceiling. Faster sampling does not change where the model
   fails.
 
-## 6. Development history (single rollouts)
+## 6. Early diagnostics (single rollouts)
 
-These runs used one rollout per start on the 72 dataset starts. With 72
-starts one standard error is about ±6 points, and with 8 holdout starts one
-rollout moves the rate by 12.5 points, so small differences here are noise.
-They are kept because they explain the choices behind the final runs.
+Before the final protocol, policies were evaluated with one rollout per start
+on the 72 dataset starts. **The numbers in sections 1–5 supersede these.**
+Single rollouts proved too noisy to rank policies: across five evaluations of
+low-pass-based policies, 26 of the 72 starts flipped between success and
+failure. The runs are kept for the diagnostics below, which explain the
+choices behind the final runs.
 
-### Models
+### Batch size
 
-| Run | Data | Train clips | Batch | Steps |
-|---|---|---|---|---|
-| `no_funnel_baseline_30000` | raw | 72 (no holdout) | 1 | 30k |
-| `raw_bs32_20k` | raw | 64 | 32 | 20k |
-| `lowpass_bs32_20k` | 2 Hz low-pass tracked poses | 49 | 32 | 20k |
-| `recovery_bs32_10k` | raw + DART-style recovery copies (gain 1.0) | 64 (254 episodes) | 32 | 10k |
+The first policy trained with batch size 1 (about 3.7 passes over the data,
+30k steps), because it was not yet clear how much GPU memory fine-tuning
+would need; batch 32 turned out to fit in 16 GB. With batch 1 it succeeded on
+23 of its own 72 training starts, with 18 deep collisions. An open-loop check
+on training frames showed it had learned only the forward approach (R² 0.64
+on the 10-step sum of dx); every lateral and rotational dimension scored
+below zero, worse than predicting the mean. Batch 32 reached 40–43/72.
 
-### Results (all 72 start states, re-plan every 10 steps unless noted)
+### Failures are drift, not near misses
 
-| Run | Checkpoint | Success | Training starts | Holdout | Deep collisions |
-|---|---|---|---|---|---|
-| `no_funnel_baseline_30000` (batch 1) | 30k | 23/72 (32%) | trained on all 72 | – | 18 |
-| `raw_bs32_20k` | 5k | 29/72 (40%) | 26/64 | 3/8 | 34 |
-| `raw_bs32_20k` | 10k | 43/72 (60%) | 39/64 | 4/8 | 1 |
-| `raw_bs32_20k` | 20k | 40/72 (56%)* | 35/64 | 5/8 | 3 |
-| `lowpass_bs32_20k` | 10k | 57/72 (79%) | 52/64 | 5/8 | 15 |
-| `lowpass_bs32_20k` | **20k** | **55/72 (76%)** | 50/64 | 5/8 | 17 |
-| `recovery_bs32_10k` | 5k | 17/72 (24%) | 14/64 | 3/8 | 52 |
-| `recovery_bs32_10k` | 10k | 18/72 (25%) | 17/64 | 1/8 | 33 |
+No failed raw-label rollout ends near the port: none finishes within 10 mm
+laterally. Failed rollouts end several centimetres away, tilted 28–50°.
+Success and failure split early: either the policy tracks the approach, or
+it drifts and keeps drifting, the compounding-error pattern of behaviour
+cloning. This is what motivated the low-pass labels and the recovery data.
 
-\* Two separate runs: 35/64 on training starts and 5/8 on the holdout.
-"Training starts" here means the 64 training clips. The low-pass model
-trained on only 49 of them (see 4 below). The holdout-only runs of
-`raw_bs32_20k` scored 5/8 at every checkpoint (5k, 10k, 15k, 20k).
+Low-pass failures look different: they end about 15 cm away but tilted only
+14–17°, with higher peak force (about 500 N). Rotation drift is mostly gone,
+and failures become lateral misses that end pushing on the port face.
 
-### 1. Batch size was the first-order problem
+### The first hint that low-pass labels overfit
 
-The first baseline trained with batch size 1 (about 3.7 passes over the
-data), because it was not yet clear how much GPU memory fine-tuning would
-need; batch 32 turned out to fit in 16 GB.
-On its own training starts it succeeded 23/72 times, with 18 deep collisions.
-An open-loop check on training frames showed it had learned only the forward
-approach (R² 0.64 on the 10-step sum of dx). Every lateral and rotational
-dimension scored below zero, meaning worse than predicting the mean. Batch 32
-with a holdout (`raw_bs32_20k`) reached 40–43/72 and 5/8 on the holdout.
-
-### 2. Failures are drift, not near misses
-
-Across every raw-label run, no failed rollout ends near the port: zero failures
-finish within 10 mm laterally. Failed rollouts end several centimetres away,
-typically tilted 30–50°. Success and failure split early. Either the policy
-tracks the approach, or it drifts and keeps drifting, the classic
-compounding-error pattern of behaviour cloning on clean demonstrations.
-
-Train and holdout success rates are similar (raw 20k: 35/64 = 55% training
-starts against 5/8 holdout), so this is not overfitting to the demonstrations.
-The policy cannot reliably reproduce even the motions it trained on.
-
-### 3. Re-planning more often helps a little, and costs collisions
-
-| Checkpoint | Re-plan every | Success | Deep collisions |
-|---|---|---|---|
-| raw 10k | 10 | 43/72 | 1 |
-| raw 10k | 2 | 43/72 | 8 |
-| raw 20k | 10 | 40/72 (35/64 + 5/8, separate runs) | 3 |
-| raw 20k | 5 | 40/72 | 4 |
-| raw 20k | 2 | 49/72 | 8 |
-
-Re-planning every 2 steps gave +9 rollouts at 20k but nothing at 10k, and it
-consistently raised deep collisions. The likely cause is that consecutive
-chunks are independent noise samples, so frequent switching makes motion
-jerkier at contact. Ensembling overlapping chunks would avoid that switching.
-It is a cheap knob, not a fix for drift.
-
-### 4. Low-pass labels: better fit, unclear generalisation
-
-Marker-tracked orientation is noisy. 72% of the tip's angular-velocity power
-lies at or above 5 Hz and only 7% below 2 Hz, while deliberate hand motion
-lies below 2–3 Hz. Re-retargeting with a 2 Hz zero-phase Butterworth halves
-per-step rotation jitter and keeps each clip's net motion within about 1 mm.
-
-The cost: 17 of 72 clips no longer insert in the 15 × 7 mm port. Most stall on
-the rim 0–1 mm deep, 5–12 mm off-centre. Filtering only position or only
-orientation breaks different clips, and cutoffs up to 6 Hz do not recover
-them. Success through this tight port depends on fine detail of the raw
-motion, possibly the small wiggle the jitter adds.
-
-Even so, the low-pass model is the best so far: 55/72 (76%) at 20k and 57/72
-(79%) at 10k, against 40–43/72 for raw labels. Split by which clips each model
-trained on, though, the gain is almost entirely on clips it trained on.
+With single rollouts, the low-pass model looked like the clear winner (55/72
+against 40/72 for raw labels at 20k). Split by which clips each model trained
+on, the gain was almost entirely on its own training clips:
 
 | Start states (20k checkpoints) | Low-pass | Raw (re-plan 2) | Raw (re-plan 5) |
 |---|---|---|---|
@@ -324,71 +271,42 @@ trained on, though, the gain is almost entirely on clips it trained on.
 | 15 clips the filter rejected (raw trained on them, low-pass did not) | 9/15 | 9/15 | 7/15 |
 | 8 holdout clips (neither trained on them) | 5/8 | 5/8 | 4/8 |
 
-So smoother labels make the demonstrations much easier to reproduce, and the
-model fits its own clips better. On clips the low-pass model never saw, it
-matches the raw model, even on the 15 clips the raw model *did* train on. With
-23 unseen starts, a generalisation gain cannot be claimed either way.
+On clips it never saw, the low-pass model only matched the raw one, even on
+the 15 clips the raw model did train on. With 23 unseen starts this could not
+be settled, which is why the 55 excluded starts were added (section 1).
 
-Its failures also look different. They end about 15 cm away, tilted only
-14–17° (raw: 28–50°), but with higher peak force (about 500 N), and deep
-collisions rose to 15–17 rollouts. Rotation drift is mostly gone; failures now
-look like lateral misses that end pushing on the port face.
+### Re-planning more often
 
-### 5. Recovery data v1 failed, for an identifiable reason
+| Checkpoint | Re-plan every | Success | Deep collisions |
+|---|---|---|---|
+| raw 10k | 10 | 43/72 | 1 |
+| raw 10k | 2 | 43/72 | 8 |
+| raw 20k | 10 | 40/72 | 3 |
+| raw 20k | 5 | 40/72 | 4 |
+| raw 20k | 2 | 49/72 | 8 |
 
-`mimicvla.dataset.recovery` re-executes each training clip 3 extra
-times. Each copy adds an Ornstein–Uhlenbeck offset (about 3 mm and 2° RMS,
-fading to zero within 5 mm of the mouth) to the executed command, and labels
-each frame with the clean command back to the human target. Copy 0 reproduces
-the raw labels to 2.5e-6, and 254 of 256 copies pass the replay gate.
+Re-planning every 2 steps gave +9 rollouts at 20k but nothing at 10k, and it
+always raised deep collisions. Consecutive chunks are independent noise
+samples, so frequent switching makes the motion jerkier at contact.
+Ensembling overlapping chunks would avoid the switching. All final runs
+re-plan every 10 steps.
 
-It made the policy much worse: 17/72 (24%) at 5k and 18/72 (25%) at 10k,
-against 29/72 and 43/72 for raw labels at the same steps. Holdout success fell
-to 1/8 at 10k. Failed rollouts end about 34 cm away and about 89° off.
+### Why recovery data version 1 failed
 
-The labels removed the whole offset in one step (capped at 3 mm and 2°). With
-a 2° RMS rotation offset the cap is hit often, so the rotation label std rose
-from 7.3 to 12.7 mrad per step. The policy learned large, abrupt rotation
-commands. In closed loop these overshoot and build into the 25 cm, 70°
-excursions seen in the results. There is a second issue: the labels depend on
-the controller's internal target, which the policy cannot observe, because
-the arm's actual pose lags the target.
+Version 1 (gain 1.0) dropped success to 18/72 at 10k, against 43/72 for raw
+labels; failed rollouts ended about 34 cm away and 89° off. Each label
+removed the whole offset in one step (capped at 3 mm and 2°). With a 2° RMS
+rotation offset the cap is hit often, so the rotation label spread rose from
+7.3 to 12.7 mrad per step, and the policy learned large, abrupt rotations
+that overshoot in closed loop. A second issue: the labels depend on the
+controller's internal target, which the policy cannot observe, because the
+arm lags the target.
 
-The fix is a partial correction per step. `--correction-gain` (default 1.0,
-which is v1) sets the fraction of the offset each label removes. On 5 sample
-clips, gain 0.15 brings label spread back to human scale: 7.0–7.7 mrad and
-1.0–1.2 mm per step, against 7.3 mrad and 0.8–1.3 mm for the raw labels. The robot then
-returns over about 0.3 s, with the same noise and the same gate pass rate.
-It was trained afterwards; see the follow-up below and section 4.
-
-### Follow-up: gentle recovery labels and DSRL
-
-All runs on the 72 start states, one rollout each, re-plan every 10 steps.
-
-| Run | Success | Training starts | Holdout | Deep collisions | Median peak force |
-|---|---|---|---|---|---|
-| `lowpass_bs32_20k` 20k (reference) | 55/72 (76%) | 50/64 | 5/8 | 17 | 128 N |
-| `lowpass_recovery_bs32_20k` 10k | 46/72 (64%) | 41/64 | 5/8 | 26 | 176 N |
-| `lowpass_recovery_bs32_20k` 20k | 53/72 (74%) | 49/64 | 4/8 | 19 | 140 N |
-| `recovery_v2_bs32_10k` 10k (raw + gentle recovery) | 44/72 (61%) | 40/64 | 4/8 | 12 | 135 N |
-| DSRL on low-pass 20k, base noise N(0, I) | 55/72 (76%) | 50/64 | 5/8 | 17 | 123 N |
-| DSRL on low-pass 20k, fixed zero noise | 58/72 (81%) | 53/64 | 5/8 | 14 | – |
-| DSRL on low-pass 20k, learned steering (30k decisions) | 59/72 (82%) | 54/64 | 5/8 | 13 | 131 N |
-
-- **Gentle recovery labels** (`--correction-gain 0.15`) remove the damage of v1
-  (18/72 → 44/72 on raw labels), but add nothing over training without
-  recovery, on raw or low-pass labels.
-- **DSRL** (`mimicvla.training.dsrl`) keeps SmolVLA frozen and trains SAC
-  over the initial flow-matching noise of the 10 executed steps (60 dims,
-  bounded to ±2), on training starts only. Its training success stayed at
-  about 80% throughout. The learned steering scores 59/72 deterministically,
-  but a fixed all-zero noise scores 58/72, so the gain over random noise is
-  explained by removing sampling noise, not by anything the RL learned
-  (against zero noise: 5 starts gained, 4 lost; holdout unchanged).
-- **Single-rollout comparisons are noisy.** Across these five evaluations of
-  low-pass-based policies, 40 starts always succeed, 6 always fail (3 of them
-  holdout) and 26 flip between runs. Differences of ±4/72 are within noise;
-  future comparisons need several seeds per start.
+Version 2 removes 15% of the offset per step (`--correction-gain 0.15`). On
+5 sample clips this brings the label spread back to human scale (7.0–7.7 mrad
+and 1.0–1.2 mm per step, against 7.3 mrad and 0.8–1.3 mm for raw labels), and
+the arm returns to the human path over about 0.3 s. Its 5-seed results are in
+section 4.
 
 ## Data pipeline details
 
