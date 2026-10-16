@@ -39,7 +39,7 @@ def run_sim_demo(output: Path) -> dict:
 
 
 def main() -> None:
-    from .dataset import build
+    from .dataset import build, review
 
     parser = argparse.ArgumentParser(prog="mimicvla")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -72,6 +72,10 @@ def main() -> None:
     build.add_arguments(commands.add_parser(
         "build-dataset", help="tracked recordings -> gated Panda replays -> LeRobot dataset",
         description=build.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter))
+
+    review.add_arguments(commands.add_parser(
+        "review", help="accept or reject tracked clips in the browser",
+        description=review.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter))
 
     evaluate = commands.add_parser("evaluate", help="run a policy closed loop from start states")
     evaluate.add_argument("checkpoint", help="pretrained_model folder")
@@ -125,6 +129,8 @@ def main() -> None:
         print(json.dumps(build.replay_clip(args.trajectory, output, geometry), indent=2))
     elif args.command == "build-dataset":
         build.run(args)
+    elif args.command == "review":
+        review.run(args)
     elif args.command == "evaluate":
         dataset = Path("data/mimicvla-panda-usb")
         if not dataset.exists():

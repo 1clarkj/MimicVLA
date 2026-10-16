@@ -135,9 +135,11 @@ Each step responded to the failures of the previous one. Full tables are in
 
 ### Step 1: batch size
 
-The first policy (batch 1, 30k steps) succeeded on only 32% of its own
-training starts and had learned only the forward approach, not the lateral
-and rotational corrections. **Batch 32 fixed it** (60%).
+I started with batch size 1 because I did not know how much GPU memory
+SmolVLA fine-tuning would need on a 16 GB card. That policy (30k steps)
+succeeded on only 32% of its own training starts and had learned only the
+forward approach, not the lateral and rotational corrections. Once I saw the
+GPU had room, I raised the batch to 32, which fixed it (60%).
 
 ### Step 2: smoothing the labels — the best-looking model generalised worst
 
@@ -220,10 +222,19 @@ port, and a mirrored joint state is not a valid Panda state. Instead I
 mirrored the human trajectories across the port's vertical mid-plane and
 replayed them, which gives physically valid demonstrations. 48 of 72 still
 insert. Adding the 46 training mirrors cost 9 points on unseen starts
-[−18, +1] and raised deep collisions from 4% to 17%. Either 10k steps
-underfit the larger set (training-start success also fell), or one person's
-starts are not symmetric, so the mirrored half is spent where tests rarely
-start. A longer run would tell these apart; I did not run it.
+[−18, +1] and raised deep collisions from 4% to 17%. Two explanations fit:
+
+- **Too few steps for more data.** With 110 episodes and the same 10k steps,
+  each original clip is seen 40% less often, and training-start success also
+  fell (60% → 47%), which looks like underfitting.
+- **The mirrored data is not useful.** One person's starts may not be
+  symmetric about the port, so the mirrored half is spent where tests rarely
+  start. If the mirrors were useful, they should have helped even at 10k
+  steps, which they did not.
+
+A 20k-step mirror run separates the two, and it is the next run I would
+train. Mirroring is a cheap form of synthetic data, so it is worth settling
+before recording more.
 
 ### Step 6: more human data — the strongest lever
 
@@ -299,12 +310,14 @@ fixes where the policy goes wrong.
 
 ## 7. Next steps
 
-1. **Record more demonstrations**, with two markers on a rigid mount from the
+1. **Train the mirror run for 20k steps.** It is the cheapest way to get
+   more data, and it tells whether synthetic mirrored demonstrations help.
+2. **Record more demonstrations**, with two markers on a rigid mount from the
    start. It is the only change that moved unseen success by more than
    noise, and it has not saturated.
-2. **Add force.** Observe wrist force, penalise sustained high force, and
+3. **Add force.** Observe wrist force, penalise sustained high force, and
    fine-tune the weights with RL rather than only the noise.
-3. **Shrink the port** towards the real size as an RL curriculum.
-4. **Use a world model as the evaluator.** Trustworthy evaluation was the
+4. **Shrink the port** towards the real size as an RL curriculum.
+5. **Use a world model as the evaluator.** Trustworthy evaluation was the
    scarce resource here; a learned model that ranks policies like the
    55-start test would make iteration much cheaper.

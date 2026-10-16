@@ -164,8 +164,9 @@ Likely reasons, untested:
    data spends capacity on the other side, which the excluded starts rarely
    visit. The start distribution has not been checked for this.
 
-A 20k-step mirror run would separate these, but was not run. For now, real
-recordings beat synthetic mirrors.
+A 20k-step mirror run separates these and is the next run to train. If the
+mirrors were useful, they should already have helped at 10k steps, so the
+second reason is the more likely one, but only the longer run can show it.
 
 **Lighting augmentation was skipped.** The simulator renders with fixed
 lighting, so evaluation in sim cannot show a benefit. It belongs to
@@ -252,11 +253,6 @@ Interpretation:
   coarse (0, 20, …, 100%). The videos use seed 1 and print each
   policy's 5-seed record for that start, so a single clip is not mistaken for
   a rate.
-- **CPU vs GPU outcomes differ.** Rollouts on the CPU did not reproduce GPU
-  outcomes for the same seed. The CPU and CUDA random generators produce
-  different noise for the same seed, and kernels differ numerically, so this
-  is expected, but it was not investigated further. All success numbers here
-  are GPU rollouts; the CPU was used only for latency.
 - **Loaded-GPU timing.** The evaluation also records per-rollout
   `median_chunk_ms`. While four evaluations share the GPU, it reads about
   290 ms at 10 steps. Use the idle benchmark above, not those numbers.
@@ -298,7 +294,9 @@ trained on only 49 of them (see 4 below). The holdout-only runs of
 
 ### 1. Batch size was the first-order problem
 
-The first baseline trained with batch size 1 (about 3.7 passes over the data).
+The first baseline trained with batch size 1 (about 3.7 passes over the
+data), because it was not yet clear how much GPU memory fine-tuning would
+need; batch 32 turned out to fit in 16 GB.
 On its own training starts it succeeded 23/72 times, with 18 deep collisions.
 An open-loop check on training frames showed it had learned only the forward
 approach (R² 0.64 on the 10-step sum of dx). Every lateral and rotational

@@ -179,12 +179,22 @@ bash scripts/train.sh my_run 10000 outputs/datasets/my_set
 deep. Contact with the port walls is fine; only penetrating them by more
 than 1 mm (a simulator artefact) or a joint limit rejects it (details:
 `mimicvla build-dataset --help`).
-Watch the replay videos it writes to `outputs/datasets/my_set_replays/` and
-pass `--clips list.txt` to keep only the clips you accept. The simulated port
-is 15 × 7 mm by default (`--port-mm`), wider than a real USB-A port because
-marker tracking is not precise enough for the real one; RESULTS.md explains
-why. The held-out split in `scripts/train.sh` lists clips of my recordings;
-with your own data every episode is used for training.
+
+**Optional: review the clips by eye.** The automatic check cannot tell
+whether the tracking followed the real plug. `mimicvla review` opens a page
+in the browser with each tracked recording next to its replay; the clips you
+accept go to `accepted_clips.txt`, and you rebuild with only those:
+
+```bash
+uv run mimicvla review outputs/tracking --replays outputs/datasets/my_set_replays
+uv run mimicvla build-dataset outputs/tracking --clips outputs/tracking/accepted_clips.txt \
+    --output outputs/datasets/my_set_reviewed
+```
+
+The simulated port is 15 × 7 mm by default (`--port-mm`), wider than a real
+USB-A port because marker tracking is not precise enough for the real one;
+RESULTS.md explains why. The held-out split in `scripts/train.sh` lists clips
+of my recordings; with your own data every episode is used for training.
 
 ## Data
 
