@@ -7,7 +7,7 @@ is described in [pipeline.md](pipeline.md).
 
 ## Protocol
 
-`scripts/evaluate_policy.py` starts each rollout from a recorded start state:
+`mimicvla.training.evaluate` starts each rollout from a recorded start state:
 it replays that clip's simulator alignment prefix, then hands control to the
 policy. A rollout succeeds when the USB tip centre is inside the
 15 × 7 mm opening and at least 12 mm deep within 400 steps (20 s).
@@ -20,7 +20,7 @@ Start sets:
 - **Training starts (64)**: the clips of `usb_15x7_no_funnel_full_v2` used for
   training.
 - **Holdout (8)**: clips of the same dataset that no model trained on
-  (`scripts/holdout_split.py`, seed 2026, stratified by recording batch).
+  (`mimicvla.dataset.splits`, seed 2026, stratified by recording batch).
   Too few to rank models.
 - **Excluded starts (55)**: aligned start poses from recordings that never
   entered any training set (16 failed the 15 × 7 mm replay check, 7 were
@@ -100,7 +100,7 @@ Interpretation:
 
 Same recipe as `raw_10k` (raw labels, batch 32, 10k steps, learning-rate
 schedule of the 20k run so the 64-demo point is the same checkpoint).
-`scripts/holdout_split.py` draws nested subsets of the 64 training clips
+`mimicvla.dataset.splits` draws nested subsets of the 64 training clips
 (seed 2026): 16 ⊂ 32 ⊂ 64.
 
 | Demos | Policy | Trained starts | Unseen dataset starts | Excluded starts (55) | Deep-collision rollouts (55) | Median peak force (55) |
@@ -148,7 +148,7 @@ re-retargeted onto the Panda and re-rendered from the real cameras.
 Every mirrored episode is a physically valid robot demonstration with correct
 images, joint states and actions. It still comes from a human trajectory.
 
-- `scripts/export_mirrored_lerobot.py` → `usb_15x7_no_funnel_mirror_v1`.
+- `mimicvla.dataset.mirror` → `usb_15x7_no_funnel_mirror_v1`.
   Of 72 mirrored clips, **48 pass the same 15 × 7 mm replay gate** as the
   originals. Almost all 24 rejects stall on the rim at about 0 mm depth, the
   same failure as low-pass breakage. A plausible reason is that the
@@ -221,8 +221,8 @@ Interpretation:
 
 SmolVLA produces each 50-action chunk with flow matching, by default in
 10 denoising steps. Fewer steps are faster but give a coarser sample.
-`scripts/evaluate_policy.py --num-steps N` changes this at inference only;
-the model is `lowpass_20k`. Latency comes from `scripts/benchmark_latency.py`
+`mimicvla.training.evaluate --num-steps N` changes this at inference only;
+the model is `lowpass_20k`. Latency comes from `mimicvla.training.latency`
 on an idle GPU: 20 real start observations × 3 repeats, with a CUDA
 synchronisation around each call. Each call runs the full VLM prefix and
 denoising, as at every re-plan.
@@ -386,7 +386,7 @@ look like lateral misses that end pushing on the port face.
 
 ### 5. Recovery data v1 failed, for an identifiable reason
 
-`scripts/export_recovery_lerobot.py` re-executes each training clip 3 extra
+`mimicvla.dataset.recovery` re-executes each training clip 3 extra
 times. Each copy adds an Ornstein–Uhlenbeck offset (about 3 mm and 2° RMS,
 fading to zero within 5 mm of the mouth) to the executed command, and labels
 each frame with the clean command back to the human target. Copy 0 reproduces
@@ -428,7 +428,7 @@ All runs on the 72 start states, one rollout each, re-plan every 10 steps.
 - **Gentle recovery labels** (`--correction-gain 0.15`) remove the damage of v1
   (18/72 → 44/72 on raw labels), but add nothing over training without
   recovery, on raw or low-pass labels.
-- **DSRL** (`scripts/dsrl_smolvla.py`) keeps SmolVLA frozen and trains SAC
+- **DSRL** (`mimicvla.training.dsrl`) keeps SmolVLA frozen and trains SAC
   over the initial flow-matching noise of the 10 executed steps (60 dims,
   bounded to ±2), on training starts only. Its training success stayed at
   about 80% throughout. The learned steering scores 59/72 deterministically,
@@ -443,7 +443,7 @@ All runs on the 72 start states, one rollout each, re-plan every 10 steps.
 
 ## Videos
 
-`scripts/build_readme_videos.py` builds side-by-side clips in
+`mimicvla.training.videos` builds side-by-side clips in
 `documentation/videos/` (full-quality `.mp4` and a compact `.gif`). The panels
 are:
 
@@ -470,12 +470,11 @@ evaluations and summaries in order. Single steps:
 
 ```bash
 # train (the 8 holdout clips are excluded automatically)
-bash scripts/train_no_funnel_smolvla.sh RUN STEPS [DATASET_ID] [BATCH]
+bash scripts/train.sh RUN STEPS [DATASET_ID] [BATCH]
 # evaluate one seed on a start set
-PYTHONPATH=scripts MUJOCO_GL=egl .venv/bin/python scripts/evaluate_policy.py CKPT \
+MUJOCO_GL=egl .venv/bin/python -m mimicvla.training.evaluate CKPT \
   --dataset-dir outputs/eval_sets/excluded_starts_v1 --split all \
   --n-action-steps 10 --no-video --seed 0 --output-dir OUT
 # tables, intervals and figures
-PYTHONPATH=scripts .venv/bin/python scripts/summarize_multiseed.py --markdown
-PYTHONPATH=scripts .venv/bin/python scripts/summarize_overnight.py
+.venv/bin/python -m mimicvla.training.report
 ```

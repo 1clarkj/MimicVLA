@@ -1,12 +1,8 @@
 """The data-scaling subsets are nested and exclude the holdout clips."""
 
 import json
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-from holdout_split import HOLDOUT_CLIPS, split_indices, train_subset  # noqa: E402
+from mimicvla.dataset.splits import HOLDOUT_CLIPS, split_indices, train_subset
 
 
 def test_train_subsets_are_nested_and_exclude_holdout(tmp_path):

@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mimicvla.evaluation.dual_recordings import resolve_batch
-from mimicvla.evaluation.recordings import _runs, fill_short_gaps, select_insertion_run
+from mimicvla.dataset.dual_recordings import resolve_batch
+from mimicvla.dataset.recordings import _runs, fill_short_gaps, select_insertion_run
 
 
 def test_fill_short_gap_preserves_original_and_endpoints():

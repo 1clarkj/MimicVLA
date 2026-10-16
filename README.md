@@ -32,9 +32,9 @@ never sees the phone video or the markers.
 | `src/mimicvla/sim/` | MuJoCo scene (Menagerie Panda, USB plug, wall port, two cameras), IK controller, environment |
 | `src/mimicvla/vision/` | Camera calibration, ArUco tracking, one- and two-marker pose estimation |
 | `src/mimicvla/retarget.py` | Tracked plug trajectory → Panda end-effector commands |
-| `src/mimicvla/data/` | Raw and LeRobot dataset export |
-| `src/mimicvla/evaluation/` | Batch tracking, replay and scoring of recordings |
-| `scripts/` | Pipeline stages, training, evaluation and DSRL; see [scripts/README.md](scripts/README.md) |
+| `src/mimicvla/dataset/` | Recordings → training data: batch tracking, recalibration, replays, review dashboard, selection, LeRobot export, label variants, splits, Hugging Face export |
+| `src/mimicvla/training/` | Closed-loop evaluation, DSRL, latency benchmark, result tables and figures, videos |
+| `scripts/` | `process_recordings.sh` (data pipeline), `train.sh`, `reproduce_results.sh`, `view_sim.sh` |
 | `calibration/` | Printable ChArUco and ArUco sheets |
 | `documentation/` | [Pipeline](documentation/pipeline.md), [experiments](documentation/experiments.md), figures and videos |
 | `tests/` | Unit and integration tests |
@@ -94,19 +94,21 @@ uv run mimicvla replay-tracking --trajectory outputs/demo_001/trajectory.jsonl \
 ```
 
 The replay writes `replay.mp4`, the retargeted Panda trajectory and a summary.
-Marker sizes, mount offsets, recording advice and the batch pipeline
-(recalibration, review, dataset export) are in
-[documentation/pipeline.md](documentation/pipeline.md).
+For a whole folder of recordings, `bash scripts/process_recordings.sh track`
+tracks, recalibrates and replays every clip, `python -m mimicvla.dataset.review`
+opens the review dashboard, and `bash scripts/process_recordings.sh select`
+builds the training set. Marker sizes, mount offsets and recording advice are
+in [documentation/pipeline.md](documentation/pipeline.md).
 
 ## Training and evaluation
 
 ```bash
 # Fine-tune SmolVLA on the 72-episode dataset (the 8 holdout clips are excluded)
-bash scripts/train_no_funnel_smolvla.sh raw_bs32_20k 20000
+bash scripts/train.sh raw_bs32_20k 20000
 
 # 5-seed closed-loop evaluation on the 55 excluded starts
 for seed in 0 1 2 3 4; do
-  PYTHONPATH=scripts uv run python scripts/evaluate_policy.py \
+  uv run python -m mimicvla.training.evaluate \
     outputs/train/raw_bs32_20k/checkpoints/010000/pretrained_model \
     --dataset-dir outputs/eval_sets/excluded_starts_v1 --split all \
     --n-action-steps 10 --no-video --seed $seed \

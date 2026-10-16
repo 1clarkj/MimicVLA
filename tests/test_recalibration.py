@@ -1,16 +1,8 @@
 """Session calibration detects sustained changes without per-clip offsets."""
 
-import importlib.util
-from pathlib import Path
-
 import numpy as np
 
-
-SPEC = importlib.util.spec_from_file_location(
-    "recalibrate_recordings", Path(__file__).resolve().parents[1] /
-    "scripts/recalibrate_recordings.py")
-module = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(module)
+from mimicvla.dataset import recalibrate as module
 
 
 def test_sustained_mount_shift_creates_two_transforms():

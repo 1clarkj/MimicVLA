@@ -95,16 +95,6 @@ def main() -> None:
                       help="marker 0 to tip X offset; inferred for known recording-batch directories")
     dual.add_argument("--reuse-tracking-from", type=Path,
                       help="reuse raw tracking from an earlier dual evaluation")
-    rescore = commands.add_parser("rescore-replays",
-                                  help="apply the current insertion criterion to saved MuJoCo steps")
-    rescore.add_argument("--output-dir", type=Path,
-                         default=Path("outputs/evaluation_depth_entry_12mm"))
-    raw = commands.add_parser("export-raw-dataset", help="package videos and raw tracked poses for Hugging Face")
-    raw.add_argument("--evaluation-dir", type=Path, default=Path("outputs/video_evaluation_pose_prior"))
-    raw.add_argument("--calibration", type=Path, default=Path("outputs/iphone_calibration.json"))
-    raw.add_argument("--output-dir", type=Path, default=Path("outputs/datasets/usb_marker_raw"))
-    raw.add_argument("--rescore-results", type=Path,
-                     help="12 mm replay results JSON for current insertion and training labels")
     sim_data = commands.add_parser("export-sim-dataset", help="capture two-camera scripted Panda episodes in LeRobot")
     sim_data.add_argument("--output-dir", type=Path, default=Path("outputs/datasets/usb_sim_two_cam"))
     sim_data.add_argument("--episodes", type=int, default=2)
@@ -152,30 +142,23 @@ def main() -> None:
                                           complete_segment=args.complete_segment,
                                           marker_tip=marker_tip_with_x_offset(args.tip_x_mm)), indent=2))
     elif args.command == "evaluate-recordings":
-        from .evaluation.recordings import evaluate_recordings
+        from .dataset.recordings import evaluate_recordings
         print(json.dumps(evaluate_recordings(args.video_dir, args.calibration,
                                              args.output_dir,
                                              reuse_existing_replays=args.reuse_existing_replays,
                                              retrack=args.retrack), indent=2))
     elif args.command == "evaluate-dual-recordings":
-        from .evaluation.dual_recordings import evaluate_dual_recordings
+        from .dataset.dual_recordings import evaluate_dual_recordings
         print(json.dumps(evaluate_dual_recordings(args.video_dir, args.calibration,
                                                   args.output_dir,
                                                   marker10_mm=args.marker10_mm,
                                                   tip_x_mm=args.tip_x_mm,
                                                   reuse_tracking_from=args.reuse_tracking_from), indent=2))
-    elif args.command == "rescore-replays":
-        from .evaluation.rescore import rescore_replays
-        print(json.dumps(rescore_replays(args.output_dir), indent=2))
-    elif args.command == "export-raw-dataset":
-        from .data.raw_export import export_raw_dataset
-        print(json.dumps(export_raw_dataset(args.evaluation_dir, args.calibration,
-                                            args.output_dir, args.rescore_results), indent=2))
     elif args.command == "export-sim-dataset":
-        from .data.sim_export import export_sim_dataset
+        from .dataset.lerobot import export_sim_dataset
         print(json.dumps(export_sim_dataset(args.output_dir, args.episodes, args.seed), indent=2))
     elif args.command == "validate-sim-dataset":
-        from .data.sim_export import validate_sim_dataset
+        from .dataset.lerobot import validate_sim_dataset
         print(json.dumps(validate_sim_dataset(args.root), indent=2))
 
 

@@ -158,7 +158,7 @@ Two fixed offsets link the markers to the task:
 onto a video frame for checking (`--tip-x-mm` sets the X offset).
 
 The measured offsets drifted between sessions. Every clip shows a physical
-insertion, so `scripts/recalibrate_recordings.py` takes one median tracked tip
+insertion, so `mimicvla.dataset.recalibrate` takes one median tracked tip
 position per clip while it is 8–22 mm inside the nominal port. It then fits a
 robust per-session correction to marker-frame X and Z. Y (30 mm, measured) and
 all rotations stay fixed. A new session needs a sustained change over at least
@@ -186,13 +186,13 @@ Caveats:
   on both axes after calibration.
 - The four 12 mm clips have too little continuous tracking for their own fit
   and have no replayable segment.
-- A mount-stability audit (`scripts/audit_mount_stability.py`) flags 18 of 56
+- A mount-stability audit (`mimicvla.dataset.curate`) flags 18 of 56
   assessable dual clips with over 4 mm early-to-late disagreement between
   markers 0 and 10. This can mean mount motion or tracking ambiguity.
 
 ## Retargeting and MuJoCo replay
 
-`scripts/replay_recalibrated.py` (or `mimicvla replay-tracking` for one clip)
+`mimicvla.dataset.replay` (or `mimicvla replay-tracking` for one clip)
 converts the chosen segment into `T_socket_usb_tip`, resamples it to 20 Hz,
 removes isolated pose outliers and lightly smooths translation while keeping
 the final depth. Each Cartesian target step is limited to 3 mm and 2°. The
@@ -223,9 +223,9 @@ targets, actual poses, joint states, actions and contact metrics.
 
 ## Review and selection
 
-`bash scripts/recalibrate_and_replay.sh --render-review` runs the fit, the
-replays, the stability and contact audits, and renders review videos.
-`bash scripts/review_trials.sh` then serves a local dashboard at
+`bash scripts/process_recordings.sh track` runs the tracking, the fit, the
+replays and the review queues. `python -m mimicvla.dataset.review` then
+serves a local dashboard at
 `http://127.0.0.1:8765/`. For each clip it shows the original video, the
 Panda replay, the tracking plot, marker disagreement, the calibration
 residual and simulated contact force. The reviewer records human insertion,
@@ -247,7 +247,7 @@ Selection:
 2. **Port sweep: 75 clips.** Replayed into the chosen 15 × 7 mm port without a
    funnel, 75 reach 7 mm tip depth during the source motion, with no deep
    collision or joint-limit failure up to that point.
-3. **Full-replay audit: 72 clips.** `scripts/audit_compact_full_replays.py`
+3. **Full-replay audit: 72 clips.** `mimicvla.dataset.audit`
    checks each replay to its end. Two have late deep collisions and one ends
    below 12 mm. The remaining 72 are the training set: 36 single-marker,
    32 restored-mount dual, 4 earlier dual.
@@ -269,7 +269,7 @@ limitation of the source data.
 ## Port size
 
 The real port leaves 0.7 mm per side, smaller than the tracking error, so the
-simulated opening was widened. `scripts/sweep_no_funnel_port.py` replayed the
+simulated opening was widened. `mimicvla.dataset.port_sweep` replayed the
 saved actions of all 103 accepted clips against 46 rectangular, no-funnel
 openings. A clip counts if the tip centre reaches 7 mm past the mouth during
 the source motion, with no deep collision or joint-limit failure up to that
@@ -295,8 +295,8 @@ about full plug clearance or policy success.
 
 ## Training dataset format
 
-`bash scripts/prepare_15x7_dataset.sh` runs
-`scripts/export_compact_no_funnel_lerobot.py` and reads the result back with
+`bash scripts/process_recordings.sh select` runs the port sweep, the audit
+and `mimicvla.dataset.export`, and reads the result back with
 `mimicvla validate-sim-dataset`. The output is the LeRobot v3.0 dataset
 `usb_15x7_no_funnel_full_v2`: 72 episodes, 8,089 frames at 20 Hz, one task.
 
@@ -316,10 +316,10 @@ and frame range, calibration period, review decision, first 7 mm and 12 mm
 steps, final depth and peak wall force. The exporter refuses to write into a
 non-empty directory.
 
-`scripts/holdout_split.py` fixes eight held-out clips (seed 2026, stratified
+`mimicvla.dataset.splits` fixes eight held-out clips (seed 2026, stratified
 by batch: 4 of 36 single, 3 of 32 restored dual, 1 of 4 earlier dual). It is
 keyed by clip, so every derived dataset holds out the same demonstrations.
-`python scripts/holdout_split.py DATASET_DIR train|holdout|trainN` prints
+`python -m mimicvla.dataset.splits DATASET_DIR train|holdout|trainN` prints
 episode indices; `trainN` gives nested subsets for the scaling curve.
 
 ## Label variants
@@ -369,45 +369,42 @@ settings:
 
 1. Copy the `.mov` or `.mp4` files, with distinct names, into
    `video_data/double_marker_original_mount/`.
-2. Run `bash scripts/process_new_recordings.sh --dry-run`, then without
-   `--dry-run`. This reruns every clip in the folder, refits the
-   marker-10-to-marker-0 mount, tracks with marker 0 alone and with both
-   markers, and replays the selected segment.
-3. Run `bash scripts/recalibrate_and_replay.sh --render-review` to refit the
-   session offsets and render review videos.
-4. Review the clips in `bash scripts/review_trials.sh`.
-5. Re-run the 18 × 10 mm reviewed export
-   (`scripts/export_recalibrated_lerobot.py --geometry wide_no_funnel`), the
-   port sweep, the full-replay audit and `scripts/prepare_15x7_dataset.sh`.
-   The 15 × 7 mm exporter takes its clip list from those outputs.
-   Use a new dataset directory; exporters do not overwrite.
+2. Run `bash scripts/process_recordings.sh track`. This retracks every clip,
+   refits the marker-10-to-marker-0 mount and the session offsets, replays
+   each clip on the Panda and rebuilds the review queues.
+3. Review the new clips with `python -m mimicvla.dataset.review`.
+4. Run `bash scripts/process_recordings.sh select` to rebuild the port sweep,
+   the audit, the 72-episode dataset (with a new output directory; exporters
+   do not overwrite) and the excluded-start set.
 
 If the physical mount or the camera setup changes, recalibrate and put the
 clips in a new batch directory. Then run
 `mimicvla evaluate-dual-recordings --video-dir NEW_DIR --tip-x-mm VALUE --output-dir NEW_OUTPUT`.
 
-## Stage-to-script reference
+## Stage-to-module reference
 
-| Stage | Command or script |
+Modules run as `python -m <module>` from the repository root.
+`scripts/process_recordings.sh` runs them in order.
+
+| Stage | Command or module |
 | --- | --- |
 | Camera calibration | `mimicvla calibrate-camera` |
 | Single-marker tracking | `mimicvla track-video`, batch: `mimicvla evaluate-recordings` |
-| Two-marker tracking and mount fit | `mimicvla evaluate-dual-recordings`, `scripts/process_new_recordings.sh` |
+| Two-marker tracking and mount fit | `mimicvla evaluate-dual-recordings` |
 | Frame check on a video frame | `mimicvla inspect-marker-frames` |
 | Single-clip replay | `mimicvla replay-tracking` |
-| Per-session recalibration | `scripts/recalibrate_recordings.py` |
-| Replay with recalibrated offsets | `scripts/replay_recalibrated.py` |
-| Full recalibration chain and audits | `scripts/recalibrate_and_replay.sh` |
-| Review dashboard | `scripts/review_trials.sh` (`scripts/review_trials.py`) |
-| 18 × 10 mm review queues | `scripts/curate_wide_no_funnel.py`, `scripts/replay_additional_wide_no_funnel.py`, `scripts/curate_additional_wide_no_funnel.py` |
-| Reviewed 18 × 10 mm export | `scripts/export_recalibrated_lerobot.py --geometry wide_no_funnel` |
-| Port sweep | `scripts/sweep_no_funnel_port.py` |
-| Full-replay audit | `scripts/audit_compact_full_replays.py` |
-| 15 × 7 mm training dataset | `scripts/prepare_15x7_dataset.sh` (`scripts/export_compact_no_funnel_lerobot.py`) |
+| Per-session recalibration | `mimicvla.dataset.recalibrate` |
+| Replays with recalibrated offsets | `mimicvla.dataset.replay`, `mimicvla.dataset.render` (two-marker, widened port), `mimicvla.dataset.replay_additional` (single-marker and earlier two-marker, widened port) |
+| Mount-stability check and review queues | `mimicvla.dataset.curate` |
+| Review dashboard | `mimicvla.dataset.review` |
+| Reviewed 18 × 10 mm export | `mimicvla.dataset.export_review --geometry wide_no_funnel` |
+| Port sweep | `mimicvla.dataset.port_sweep` |
+| Full-replay audit | `mimicvla.dataset.audit` |
+| 15 × 7 mm training dataset | `mimicvla.dataset.export` |
 | Read-back check | `mimicvla validate-sim-dataset` |
-| Low-pass labels | `scripts/export_smoothed_lerobot.py` |
-| Recovery labels | `scripts/export_recovery_lerobot.py` |
-| Mirrored episodes | `scripts/export_mirrored_lerobot.py` |
-| Held-out split | `scripts/holdout_split.py` |
-| Rescore saved replays | `mimicvla rescore-replays` |
-| Raw human archive | `mimicvla export-raw-dataset` |
+| Held-out split and nested subsets | `mimicvla.dataset.splits` |
+| Excluded-start evaluation set | `mimicvla.dataset.excluded_starts` |
+| Low-pass labels | `mimicvla.dataset.lowpass` |
+| Recovery labels | `mimicvla.dataset.recovery` |
+| Mirrored episodes | `mimicvla.dataset.mirror` |
+| Hugging Face export of the recordings | `mimicvla.dataset.hf_export` |
