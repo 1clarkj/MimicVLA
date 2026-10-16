@@ -9,11 +9,11 @@ import numpy as np
 from scipy.ndimage import median_filter
 from scipy.spatial.transform import Rotation, Slerp
 
-from ..retarget import pose_motion_rates, replay_recording
-from ..sim.env import SimConfig
-from ..vision.target_frames import provisional_mounts, socket_from_tip
-from ..vision.track import track_video
-from ..vision.transforms import translation_rotvec
+from mimicvla.retarget import pose_motion_rates, replay_recording
+from mimicvla.sim.env import SimConfig
+from mimicvla.vision.target_frames import provisional_mounts, socket_from_tip
+from mimicvla.vision.track import track_video
+from mimicvla.vision.transforms import translation_rotvec
 
 
 def fill_short_gaps(records: list[dict], max_missing: int = 4) -> tuple[list[dict], int]:

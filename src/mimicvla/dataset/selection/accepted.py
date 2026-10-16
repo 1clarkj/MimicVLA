@@ -1,11 +1,11 @@
 """Export the accepted clips on the widened 18 x 10 mm port as a LeRobot dataset.
 
 Every clip accepted in review from either widened-port review queue (built by
-mimicvla.dataset.curate), up to its first insertion. This 103-episode
+mimicvla.dataset.review.queues), up to its first insertion. This 103-episode
 dataset is the input to the port sweep and the 15 x 7 mm export. The camera
 setup and features here are shared by every exporter.
 
-    python -m mimicvla.dataset.export_review [--output-dir DIR]
+    python -m mimicvla.dataset.selection.accepted [--output-dir DIR]
 """
 
 from __future__ import annotations

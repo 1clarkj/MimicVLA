@@ -8,7 +8,7 @@ gets a split: train / holdout (the 72-episode usb_15x7_no_funnel_full_v2
 LeRobot dataset, keyed by -m mimicvla.dataset.splits), excluded_start_eval
 (outputs/eval_sets/excluded_starts_v1) or unused (with a reason).
 
-    python -m mimicvla.dataset.hf_export [--output DIR] [--overwrite]
+    python -m mimicvla.dataset.publish.raw [--owner HF_USER] [--overwrite]
 
 Nothing is uploaded. A privacy contact sheet (start/middle/end frame per
 clip) is written to --contact-sheet-dir.
@@ -32,12 +32,13 @@ import imageio_ffmpeg
 import numpy as np
 
 from mimicvla.dataset.splits import HOLDOUT_CLIPS
-from mimicvla.dataset.recordings import fill_short_gaps
+from mimicvla.dataset.tracking.recordings import fill_short_gaps
 from mimicvla.sim.scene import STRICT_SOCKET
 from mimicvla.vision.target_frames import provisional_mounts
 
 
 RECAL = Path("outputs/recalibration")
+LEROBOT_REPO = "mimicvla-panda-usb-15x7"
 LEROBOT = Path("outputs/datasets/usb_15x7_no_funnel_full_v2")
 EXCLUDED = Path("outputs/eval_sets/excluded_starts_v1")
 DECISIONS = Path("outputs/trial_review/decisions.csv")
@@ -52,7 +53,6 @@ MARKER_SETUP = {
     "dual_minus3": ("double_marker",
                     "markers 0 and 10 on the USB stick, second mount (USB tip prior offset -3 mm in x)"),
 }
-COMPANION = "<HF_USER>/mimicvla-panda-usb-15x7"
 SHEET_CLIPS, THUMB_W = 20, 320
 
 
@@ -185,7 +185,7 @@ def contact_sheets(rows: list[dict], output: Path, out_dir: Path) -> list[Path]:
     return paths
 
 
-def card(rows: list[dict], counts: dict, wide: dict, size_bytes: int) -> str:
+def card(rows: list[dict], counts: dict, wide: dict, size_bytes: int, companion: str) -> str:
     license_name = "mit"
     strict = STRICT_SOCKET
     by_batch = {}
@@ -224,7 +224,7 @@ during each clip. ArUco markers (`DICT_4X4_50`) are attached to the plug and
 next to the port; their per-frame 6-DoF poses were estimated from the video and
 converted into a USB-tip pose in a port-fixed frame. These poses were
 retargeted to a simulated Franka Panda in MuJoCo to produce the companion
-LeRobot dataset `{COMPANION}`.
+LeRobot dataset `{companion}`.
 
 This dataset contains human video and measured poses only. It has no robot
 joint states or robot actions.
@@ -325,12 +325,12 @@ All clips are in one Hugging Face split (`train`); use the `split` column:
 
 | split | count | definition |
 | --- | --- | --- |
-| `train` | {counts.get('train', 0)} | episodes of `{COMPANION}` that are not held out |
-| `holdout` | {counts.get('holdout', 0)} | episodes of `{COMPANION}` held out for policy evaluation (fixed list, stratified by batch, numpy seed 2026) |
+| `train` | {counts.get('train', 0)} | episodes of `{companion}` that are not held out |
+| `holdout` | {counts.get('holdout', 0)} | episodes of `{companion}` held out for policy evaluation (fixed list, stratified by batch, numpy seed 2026) |
 | `excluded_start_eval` | {counts.get('excluded_start_eval', 0)} | not in the LeRobot dataset; the Panda replay reached the aligned start pose, and that start state was used only to evaluate policies on unseen starts |
 | `unused` | {counts.get('unused', 0)} | see `split_reason` |
 
-`lerobot_episode_index` is the episode index of the clip in `{COMPANION}`
+`lerobot_episode_index` is the episode index of the clip in `{companion}`
 (train and holdout only).
 
 ## Human success vs replay success
@@ -370,6 +370,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("outputs/hf_upload/mimicvla-human-usb-raw"))
     parser.add_argument("--contact-sheet-dir", type=Path, default=Path("outputs/hf_upload/contact_sheets"))
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--owner", default="<HF_USER>", help="Hugging Face user or organisation")
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
     if args.output.exists() and any(args.output.iterdir()):
@@ -528,7 +529,8 @@ def main() -> None:
     wide_geometry = json.loads(next((RECAL / "replays").glob("*/*/wide_no_funnel/summary.json"))
                                .read_text())["socket_geometry"]
     size = sum(f.stat().st_size for f in args.output.rglob("*") if f.is_file())
-    (args.output / "README.md").write_text(card(rows, counts, wide_geometry, size))
+    (args.output / "README.md").write_text(card(rows, counts, wide_geometry, size,
+                                                    f"{args.owner}/{LEROBOT_REPO}"))
     sheets = contact_sheets(rows, args.output, args.contact_sheet_dir)
     print(json.dumps({"output": str(args.output), "rows": len(rows), "splits": counts,
                       "bytes": size, "contact_sheets": [str(p) for p in sheets]}, indent=2))

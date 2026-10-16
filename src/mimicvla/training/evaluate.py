@@ -58,18 +58,29 @@ def policy_action(policy, preprocessor, postprocessor, obs: dict, device: str) -
     return postprocessor(action).squeeze(0).float().cpu().numpy().astype(float)
 
 
-def rollout(policy, preprocessor, postprocessor, episode: dict, args) -> dict:
+def alignment_actions(episode: dict) -> list[list[float]]:
+    """Actions that move the arm from reset to the clip's start pose.
+
+    Published start sets carry them inline; local ones read the saved replay.
+    """
+    if "alignment_actions" in episode:
+        return episode["alignment_actions"]
     replay_dir = Path(episode.get("replay_dir") or
                       Path("outputs/recalibration/replays") / episode["batch"] /
                       episode["clip"] / "wide_no_funnel")
     replay = json.loads((replay_dir / "retargeted_replay.json").read_text())
+    return [entry["action"] for entry in replay[:episode["first_source_step"]]]
+
+
+def rollout(policy, preprocessor, postprocessor, episode: dict, args) -> dict:
+    alignment = alignment_actions(episode)
     first = episode["first_source_step"]
     env = PandaUSBEnv(SimConfig(max_steps=10_000, geometry=GEOMETRY,
                                 insertion_depth_m=SUCCESS_DEPTH_M))
     rng = np.random.default_rng(args.seed + episode["episode_index"])
     try:
-        for entry in replay[:first]:
-            env.step(np.asarray(entry["action"], dtype=float))
+        for action in alignment:
+            env.step(np.asarray(action, dtype=float))
         # Optional extra start perturbation (world-frame metres) for robustness tests.
         if args.start_noise_mm > 0:
             offset = rng.uniform(-1, 1, 3) * args.start_noise_mm / 1000

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from mimicvla.dataset import recalibrate as module
+from mimicvla.dataset.tracking import recalibrate as module
 
 
 def test_sustained_mount_shift_creates_two_transforms():

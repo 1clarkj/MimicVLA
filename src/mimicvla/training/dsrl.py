@@ -38,7 +38,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mimicvla.training.evaluate import GEOMETRY, SUCCESS_DEPTH_M, load_policy
+from mimicvla.training.evaluate import GEOMETRY, SUCCESS_DEPTH_M, alignment_actions, load_policy
 from mimicvla.dataset.splits import split_indices
 from mimicvla.dataset.lerobot import TASK
 from mimicvla.sim.env import PandaUSBEnv, SimConfig, insertion_success_from_metrics
@@ -65,14 +65,10 @@ class InsertionTask:
                     else self.episodes)
             episode = pool[self.rng.integers(len(pool))]
         self.episode = episode
-        replay_dir = Path(self.episode.get("replay_dir") or
-                          Path("outputs/recalibration/replays") / self.episode["batch"] /
-                          self.episode["clip"] / "wide_no_funnel")
-        replay = json.loads((replay_dir / "retargeted_replay.json").read_text())
         self.env = PandaUSBEnv(SimConfig(max_steps=10_000, geometry=GEOMETRY,
                                          insertion_depth_m=SUCCESS_DEPTH_M))
-        for entry in replay[:self.episode["first_source_step"]]:
-            self.env.step(np.asarray(entry["action"], dtype=float))
+        for action in alignment_actions(self.episode):
+            self.env.step(np.asarray(action, dtype=float))
         info = self.env.metrics()
         self.steps, self.decisions = 0, 0
         self.best_depth = self.start_depth = info["axial_error_m"]

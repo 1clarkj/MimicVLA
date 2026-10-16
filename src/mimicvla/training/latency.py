@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mimicvla.training.evaluate import GEOMETRY, load_policy, policy_action
+from mimicvla.training.evaluate import GEOMETRY, alignment_actions, load_policy, policy_action
 from mimicvla.sim.env import PandaUSBEnv, SimConfig
 
 
@@ -27,12 +27,9 @@ def start_observations(dataset_dir: Path, count: int) -> list[dict]:
     episodes = json.loads((dataset_dir / "capture_manifest.json").read_text())["episodes_manifest"]
     observations = []
     for episode in episodes[:count]:
-        replay_dir = (Path("outputs/recalibration/replays") / episode["batch"] /
-                      episode["clip"] / "wide_no_funnel")
-        replay = json.loads((replay_dir / "retargeted_replay.json").read_text())
         env = PandaUSBEnv(SimConfig(max_steps=10_000, geometry=GEOMETRY))
-        for entry in replay[:episode["first_source_step"]]:
-            env.step(np.asarray(entry["action"], dtype=float))
+        for action in alignment_actions(episode):
+            env.step(np.asarray(action, dtype=float))
         observations.append(env.observation(render=True))
         env.close()
     return observations

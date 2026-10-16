@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
-# Fine-tune SmolVLA on the 15 x 7 mm no-funnel demonstrations, excluding the
-# held-out clips in src/mimicvla/dataset/splits.py.
-#   bash scripts/train.sh RUN_NAME STEPS [DATASET_ID] [BATCH_SIZE]
+# Fine-tune SmolVLA on the USB insertion demonstrations. The 8 held-out clips
+# (src/mimicvla/dataset/splits.py) are excluded automatically.
+#   bash scripts/train.sh RUN_NAME STEPS [DATASET] [BATCH_SIZE]
+# DATASET is a dataset folder or a name under outputs/datasets/. Default: the
+# downloaded data/mimicvla-panda-usb-15x7, else the locally built
+# outputs/datasets/usb_15x7_no_funnel_full_v2.
 # TRAIN_SUBSET=train16 trains on a nested 16-clip subset (data scaling curve);
-# DECAY_STEPS overrides the LR decay horizon (default STEPS).
-# DATASET_ID: usb_15x7_no_funnel_full_v2 (raw tracked labels, default) or
-#             usb_15x7_no_funnel_lowpass2hz_v1 (low-pass tracked poses)
+# DECAY_STEPS overrides the learning-rate decay horizon (default STEPS).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-usage="Usage: bash scripts/train.sh RUN_NAME STEPS [DATASET_ID] [BATCH_SIZE]"
+usage="Usage: bash scripts/train.sh RUN_NAME STEPS [DATASET] [BATCH_SIZE]"
 run_name="${1:?$usage}"
 steps="${2:?$usage}"
-dataset_id="${3:-usb_15x7_no_funnel_full_v2}"
+dataset="${3:-}"
 batch_size="${4:-32}"
-dataset_dir="$PWD/outputs/datasets/$dataset_id"
+if [[ -z "$dataset" ]]; then
+    dataset=data/mimicvla-panda-usb-15x7
+    [[ -d "$dataset" ]] || dataset=outputs/datasets/usb_15x7_no_funnel_full_v2
+fi
+[[ -d "$dataset" ]] || dataset="outputs/datasets/$dataset"
+dataset_dir="$(cd "$dataset" && pwd)"
+dataset_id="$(basename "$dataset_dir")"
 # SmolVLA base weights, pinned to the revision used for every reported run.
 export HF_HOME="$PWD/outputs/hf_cache"
 model_dir="$(.venv/bin/python -c 'from huggingface_hub import snapshot_download

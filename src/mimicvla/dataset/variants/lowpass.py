@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mimicvla.dataset.export_review import CAMERA_SETUP, FEATURES
+from mimicvla.dataset.selection.accepted import CAMERA_SETUP, FEATURES
 from mimicvla.dataset.splits import HOLDOUT_CLIPS
 from mimicvla.dataset.lerobot import TASK
 from mimicvla.retarget import replay_recording

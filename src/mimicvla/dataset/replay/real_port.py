@@ -10,12 +10,12 @@ from pathlib import Path
 
 import numpy as np
 
-from mimicvla.dataset.recordings import fill_short_gaps, select_insertion_run
+from mimicvla.dataset.tracking.recordings import fill_short_gaps, select_insertion_run
 from mimicvla.retarget import replay_recording
 from mimicvla.sim.env import SimConfig
 from mimicvla.sim.scene import STRICT_SOCKET
 
-from mimicvla.dataset.recalibrate import BATCHES
+from mimicvla.dataset.tracking.recalibrate import BATCHES
 
 
 def choose_epoch(clip: str, epochs: list[dict]) -> tuple[dict, bool]:
@@ -43,7 +43,7 @@ def main() -> None:
     results = []
     batches = BATCHES if args.batch == "all" else {args.batch: BATCHES[args.batch]}
     # The real 13.4 x 5.9 mm port; the widened port is replayed by
-    # mimicvla.dataset.render and mimicvla.dataset.replay_additional.
+    # mimicvla.dataset.replay.wide_port and mimicvla.dataset.replay_additional.
     geometries = {"strict": STRICT_SOCKET}
     for batch_name, (pattern, _) in batches.items():
         epochs = calibration["batches"][batch_name]["epochs"]

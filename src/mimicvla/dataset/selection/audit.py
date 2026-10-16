@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mimicvla.dataset.export import DEPTH_M, GEOMETRY
+from mimicvla.dataset.selection.export import DEPTH_M, GEOMETRY
 from mimicvla.sim.env import PandaUSBEnv, SimConfig, insertion_success_from_metrics
 
 

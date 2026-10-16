@@ -1,6 +1,6 @@
 """Replay and render clips on the widened 18 x 10 mm port for the review dashboard.
 
-    python -m mimicvla.dataset.render [--batch dual_original] [--review-queue]
+    python -m mimicvla.dataset.replay.wide_port [--batch dual_original] [--review-queue]
 """
 
 import argparse

@@ -21,13 +21,13 @@ EXC55=outputs/eval_sets/excluded_starts_v1
 LOWPASS=$TRAIN/lowpass_bs32_20k/checkpoints/020000/pretrained_model
 
 data() {
-    $PY -m mimicvla.dataset.lowpass --lowpass-hz 2           # usb_15x7_no_funnel_lowpass2hz_v1
-    $PY -m mimicvla.dataset.recovery --copies 4 --correction-gain 0.15 \
+    $PY -m mimicvla.dataset.variants.lowpass --lowpass-hz 2           # usb_15x7_no_funnel_lowpass2hz_v1
+    $PY -m mimicvla.dataset.variants.recovery --copies 4 --correction-gain 0.15 \
         --dataset-id usb_15x7_no_funnel_recovery_v2
-    $PY -m mimicvla.dataset.recovery --copies 4 --correction-gain 0.15 \
+    $PY -m mimicvla.dataset.variants.recovery --copies 4 --correction-gain 0.15 \
         --source-dataset outputs/datasets/usb_15x7_no_funnel_lowpass2hz_v1 \
         --dataset-id usb_15x7_no_funnel_lowpass_recovery_v1
-    $PY -m mimicvla.dataset.mirror                           # usb_15x7_no_funnel_mirror_v1
+    $PY -m mimicvla.dataset.variants.mirror                           # usb_15x7_no_funnel_mirror_v1
     $PY -m mimicvla.dataset.excluded_starts
 }
 

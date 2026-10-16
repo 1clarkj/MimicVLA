@@ -3,7 +3,7 @@
 Uses the saved MuJoCo steps, so nothing is re-simulated. The review dashboard
 reads the result.
 
-    python -m mimicvla.dataset.rescore [--output-dir outputs/evaluation_depth_entry_12mm]
+    python -m mimicvla.dataset.tracking.rescore [--output-dir outputs/evaluation_depth_entry_12mm]
 """
 
 import argparse
@@ -15,8 +15,8 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from ..sim.env import SimConfig, insertion_success_from_metrics
-from ..sim.scene import (SOCKET_DEPTH_M, SOCKET_INNER_HALF_X_M,
+from mimicvla.sim.env import SimConfig, insertion_success_from_metrics
+from mimicvla.sim.scene import (SOCKET_DEPTH_M, SOCKET_INNER_HALF_X_M,
                          SOCKET_INNER_HALF_Y_M, USB_TIP_Z_IN_HAND_M, SocketPose)
 
 

@@ -158,7 +158,7 @@ Two fixed offsets link the markers to the task:
 onto a video frame for checking (`--tip-x-mm` sets the X offset).
 
 The measured offsets drifted between sessions. Every clip shows a physical
-insertion, so `mimicvla.dataset.recalibrate` takes one median tracked tip
+insertion, so `mimicvla.dataset.tracking.recalibrate` takes one median tracked tip
 position per clip while it is 8–22 mm inside the nominal port. It then fits a
 robust per-session correction to marker-frame X and Z. Y (30 mm, measured) and
 all rotations stay fixed. A new session needs a sustained change over at least
@@ -186,13 +186,13 @@ Caveats:
   on both axes after calibration.
 - The four 12 mm clips have too little continuous tracking for their own fit
   and have no replayable segment.
-- A mount-stability audit (`mimicvla.dataset.curate`) flags 18 of 56
+- A mount-stability audit (`mimicvla.dataset.review.queues`) flags 18 of 56
   assessable dual clips with over 4 mm early-to-late disagreement between
   markers 0 and 10. This can mean mount motion or tracking ambiguity.
 
 ## Retargeting and MuJoCo replay
 
-`mimicvla.dataset.replay` (or `mimicvla replay-tracking` for one clip)
+`mimicvla.dataset.replay.real_port` (or `mimicvla replay-tracking` for one clip)
 converts the chosen segment into `T_socket_usb_tip`, resamples it to 20 Hz,
 removes isolated pose outliers and lightly smooths translation while keeping
 the final depth. Each Cartesian target step is limited to 3 mm and 2°. The
@@ -247,14 +247,14 @@ Selection:
 2. **Port sweep: 75 clips.** Replayed into the chosen 15 × 7 mm port without a
    funnel, 75 reach 7 mm tip depth during the source motion, with no deep
    collision or joint-limit failure up to that point.
-3. **Full-replay audit: 72 clips.** `mimicvla.dataset.audit`
+3. **Full-replay audit: 72 clips.** `mimicvla.dataset.selection.audit`
    checks each replay to its end. Two have late deep collisions and one ends
    below 12 mm. The remaining 72 are the training set: 36 single-marker,
    32 restored-mount dual, 4 earlier dual.
 
 One gap in reproducibility: the audit reads the 75-clip intermediate export
 `usb_15x7_no_funnel_reviewed_7mm_v1`, which an earlier version of
-`mimicvla.dataset.export` produced. The current exporter goes
+`mimicvla.dataset.selection.export` produced. The current exporter goes
 straight from the 103 accepted clips and the audit to the 72-episode dataset,
 so rebuilding from scratch needs that intermediate export or the published
 LeRobot dataset.
@@ -269,7 +269,7 @@ limitation of the source data.
 ## Port size
 
 The real port leaves 0.7 mm per side, smaller than the tracking error, so the
-simulated opening was widened. `mimicvla.dataset.port_sweep` replayed the
+simulated opening was widened. `mimicvla.dataset.selection.port_sweep` replayed the
 saved actions of all 103 accepted clips against 46 rectangular, no-funnel
 openings. A clip counts if the tip centre reaches 7 mm past the mouth during
 the source motion, with no deep collision or joint-limit failure up to that
@@ -296,7 +296,7 @@ about full plug clearance or policy success.
 ## Training dataset format
 
 `bash scripts/process_recordings.sh select` runs the port sweep, the audit
-and `mimicvla.dataset.export`, and reads the result back with
+and `mimicvla.dataset.selection.export`, and reads the result back with
 `mimicvla validate-sim-dataset`. The output is the LeRobot v3.0 dataset
 `usb_15x7_no_funnel_full_v2`: 72 episodes, 8,089 frames at 20 Hz, one task.
 
@@ -393,18 +393,18 @@ Modules run as `python -m <module>` from the repository root.
 | Two-marker tracking and mount fit | `mimicvla evaluate-dual-recordings` |
 | Frame check on a video frame | `mimicvla inspect-marker-frames` |
 | Single-clip replay | `mimicvla replay-tracking` |
-| Per-session recalibration | `mimicvla.dataset.recalibrate` |
-| Replays with recalibrated offsets | `mimicvla.dataset.replay`, `mimicvla.dataset.render` (two-marker, widened port), `mimicvla.dataset.replay_additional` (single-marker and earlier two-marker, widened port) |
-| Mount-stability check and review queues | `mimicvla.dataset.curate` |
+| Per-session recalibration | `mimicvla.dataset.tracking.recalibrate` |
+| Replays with recalibrated offsets | `mimicvla.dataset.replay.real_port`, `mimicvla.dataset.replay.wide_port` (two-marker, widened port), `mimicvla.dataset.replay.wide_port_other` (single-marker and earlier two-marker, widened port) |
+| Mount-stability check and review queues | `mimicvla.dataset.review.queues` |
 | Review dashboard | `mimicvla.dataset.review` |
-| Reviewed 18 × 10 mm export | `mimicvla.dataset.export_review` |
-| Port sweep | `mimicvla.dataset.port_sweep` |
-| Full-replay audit | `mimicvla.dataset.audit` |
-| 15 × 7 mm training dataset | `mimicvla.dataset.export` |
+| Reviewed 18 × 10 mm export | `mimicvla.dataset.selection.accepted` |
+| Port sweep | `mimicvla.dataset.selection.port_sweep` |
+| Full-replay audit | `mimicvla.dataset.selection.audit` |
+| 15 × 7 mm training dataset | `mimicvla.dataset.selection.export` |
 | Read-back check | `mimicvla validate-sim-dataset` |
 | Held-out split and nested subsets | `mimicvla.dataset.splits` |
 | Excluded-start evaluation set | `mimicvla.dataset.excluded_starts` |
-| Low-pass labels | `mimicvla.dataset.lowpass` |
-| Recovery labels | `mimicvla.dataset.recovery` |
-| Mirrored episodes | `mimicvla.dataset.mirror` |
-| Hugging Face export of the recordings | `mimicvla.dataset.hf_export` |
+| Low-pass labels | `mimicvla.dataset.variants.lowpass` |
+| Recovery labels | `mimicvla.dataset.variants.recovery` |
+| Mirrored episodes | `mimicvla.dataset.variants.mirror` |
+| Hugging Face export of the recordings | `mimicvla.dataset.publish.raw` |

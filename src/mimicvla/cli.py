@@ -43,18 +43,21 @@ def main() -> None:
     sim = commands.add_parser("sim-demo", help="render the Panda's predefined USB insertion path")
     sim.add_argument("--output", type=Path, default=Path("outputs/sim_demo.mp4"))
     commands.add_parser("sim-view", help="open the native interactive MuJoCo viewer")
-    calibration = commands.add_parser("calibrate-camera", help="calibrate from ChArUco photos or video")
-    calibration.add_argument("--input", type=Path, required=True, help="photo directory or video file")
+    calibration = commands.add_parser("calibrate", aliases=["calibrate-camera"],
+                                      help="calibrate the phone camera from a ChArUco video or photos")
+    calibration.add_argument("input", type=Path, help="video file or photo directory")
     calibration.add_argument("--output", type=Path, default=Path("outputs/iphone_calibration.json"))
     calibration.add_argument("--stride", type=int, default=15, help="use every Nth photo/frame")
     calibration.add_argument("--square-mm", type=float, default=30.0)
     calibration.add_argument("--marker-mm", type=float, default=22.0)
-    tracking = commands.add_parser("track-video", help="record relative USB/port marker poses")
-    tracking.add_argument("--input", required=True, help="video file, or camera index such as 0")
-    tracking.add_argument("--calibration", type=Path, required=True)
-    tracking.add_argument("--output-dir", type=Path, default=Path("outputs/tracking"))
-    tracking.add_argument("--usb-marker-mm", type=float, required=True,
-                          help="measured outer black side: 12, 15, 18 or 20 mm on supplied sheet")
+    tracking = commands.add_parser("track", aliases=["track-video"],
+                                   help="track the USB and port markers in a video")
+    tracking.add_argument("input", help="video file, or camera index such as 0")
+    tracking.add_argument("--calibration", type=Path, default=Path("outputs/iphone_calibration.json"))
+    tracking.add_argument("--output-dir", type=Path,
+                          help="default: outputs/tracking/<video name>")
+    tracking.add_argument("--usb-marker-mm", type=float, default=20.0,
+                          help="outer black side of the USB marker: 12, 15, 18 or 20 mm on the sheet")
     tracking.add_argument("--port-marker-mm", type=float, default=50.0)
     tracking.add_argument("--max-frames", type=int, default=None)
     smoke = commands.add_parser("vision-smoke", help="generate and track synthetic marker video")
@@ -66,9 +69,10 @@ def main() -> None:
     inspect.add_argument("--output", type=Path, default=Path("outputs/target_frame_inspection.jpg"))
     inspect.add_argument("--tip-x-mm", type=float, default=0.0,
                          help="marker 0 to USB tip X offset; use -3 for the new dual-marker mount")
-    replay = commands.add_parser("replay-tracking", help="retarget tracked USB motion and replay it on Panda")
-    replay.add_argument("--trajectory", type=Path, required=True)
-    replay.add_argument("--output-dir", type=Path, default=Path("outputs/replay_tracking"))
+    replay = commands.add_parser("replay", aliases=["replay-tracking"],
+                                 help="replay a tracked recording on the Panda in MuJoCo")
+    replay.add_argument("trajectory", type=Path, help="trajectory.jsonl written by `track`")
+    replay.add_argument("--output-dir", type=Path, help="default: <trajectory folder>/replay")
     replay.add_argument("--start-frame", type=int)
     replay.add_argument("--end-frame", type=int)
     replay.add_argument("--complete-segment", action="store_true",
@@ -95,6 +99,9 @@ def main() -> None:
                       help="marker 0 to tip X offset; inferred for known recording-batch directories")
     dual.add_argument("--reuse-tracking-from", type=Path,
                       help="reuse raw tracking from an earlier dual evaluation")
+    download = commands.add_parser("download", help="fetch the published data into data/")
+    download.add_argument("--raw", action="store_true", help="also the 134 iPhone recordings (6.8 GB)")
+    download.add_argument("--policy", action="store_true", help="also the trained SmolVLA policy")
     sim_data = commands.add_parser("export-sim-dataset", help="capture two-camera scripted Panda episodes in LeRobot")
     sim_data.add_argument("--output-dir", type=Path, default=Path("outputs/datasets/usb_sim_two_cam"))
     sim_data.add_argument("--episodes", type=int, default=2)
@@ -109,7 +116,7 @@ def main() -> None:
             raise SystemExit("The predefined path did not reach the socket")
     elif args.command == "sim-view":
         run_viewer()
-    elif args.command == "calibrate-camera":
+    elif args.command in ("calibrate", "calibrate-camera"):
         from .vision.calibrate import calibrate
         result = calibrate(args.input, args.output, square_m=args.square_mm / 1000,
                            marker_m=args.marker_mm / 1000, stride=args.stride)
@@ -118,9 +125,10 @@ def main() -> None:
                           "board_center_span_fraction_xy": result["board_center_span_fraction_xy"],
                           "split_focal_difference_fraction": result["split_focal_difference_fraction"],
                           "warnings": result["warnings"]}, indent=2))
-    elif args.command == "track-video":
+    elif args.command in ("track", "track-video"):
         from .vision.track import track_video
-        result = track_video(args.input, args.calibration, args.output_dir,
+        output_dir = args.output_dir or Path("outputs/tracking") / Path(args.input).stem
+        result = track_video(args.input, args.calibration, output_dir,
                              usb_marker_m=args.usb_marker_mm / 1000,
                              port_marker_m=args.port_marker_mm / 1000,
                              max_frames=args.max_frames)
@@ -133,27 +141,31 @@ def main() -> None:
         print(json.dumps(inspect_frame(args.trajectory, args.calibration,
                                        args.frame_index, args.output,
                                        tip_x_mm=args.tip_x_mm), indent=2))
-    elif args.command == "replay-tracking":
+    elif args.command in ("replay", "replay-tracking"):
         from .retarget import replay_recording
         from .vision.target_frames import marker_tip_with_x_offset
-        print(json.dumps(replay_recording(args.trajectory, args.output_dir,
+        output_dir = args.output_dir or args.trajectory.parent / "replay"
+        print(json.dumps(replay_recording(args.trajectory, output_dir,
                                           start_frame=args.start_frame,
                                           end_frame=args.end_frame,
                                           complete_segment=args.complete_segment,
                                           marker_tip=marker_tip_with_x_offset(args.tip_x_mm)), indent=2))
     elif args.command == "evaluate-recordings":
-        from .dataset.recordings import evaluate_recordings
+        from .dataset.tracking.recordings import evaluate_recordings
         print(json.dumps(evaluate_recordings(args.video_dir, args.calibration,
                                              args.output_dir,
                                              reuse_existing_replays=args.reuse_existing_replays,
                                              retrack=args.retrack), indent=2))
     elif args.command == "evaluate-dual-recordings":
-        from .dataset.dual_recordings import evaluate_dual_recordings
+        from .dataset.tracking.dual_recordings import evaluate_dual_recordings
         print(json.dumps(evaluate_dual_recordings(args.video_dir, args.calibration,
                                                   args.output_dir,
                                                   marker10_mm=args.marker10_mm,
                                                   tip_x_mm=args.tip_x_mm,
                                                   reuse_tracking_from=args.reuse_tracking_from), indent=2))
+    elif args.command == "download":
+        from .dataset.publish.hub import download
+        print(json.dumps(download(raw=args.raw, policy=args.policy), indent=2))
     elif args.command == "export-sim-dataset":
         from .dataset.lerobot import export_sim_dataset
         print(json.dumps(export_sim_dataset(args.output_dir, args.episodes, args.seed), indent=2))

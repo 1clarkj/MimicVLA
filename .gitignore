@@ -7,3 +7,9 @@ MUJOCO_LOG.TXT
 /calibration/videos/
 /video_data/
 archive/
+
+.agents/
+.aws/
+.claude/
+.codex/
+/data/

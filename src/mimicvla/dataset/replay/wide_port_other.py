@@ -11,7 +11,7 @@ import numpy as np
 from mimicvla.retarget import replay_recording
 from mimicvla.sim.env import SimConfig
 from mimicvla.sim.scene import SocketGeometry
-from mimicvla.dataset.replay import choose_epoch
+from mimicvla.dataset.replay.real_port import choose_epoch
 
 
 GEOMETRY = SocketGeometry(inner_half_x_m=.009, inner_half_y_m=.005)

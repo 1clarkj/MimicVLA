@@ -148,7 +148,7 @@ re-retargeted onto the Panda and re-rendered from the real cameras.
 Every mirrored episode is a physically valid robot demonstration with correct
 images, joint states and actions. It still comes from a human trajectory.
 
-- `mimicvla.dataset.mirror` → `usb_15x7_no_funnel_mirror_v1`.
+- `mimicvla.dataset.variants.mirror` → `usb_15x7_no_funnel_mirror_v1`.
   Of 72 mirrored clips, **48 pass the same 15 × 7 mm replay gate** as the
   originals. Almost all 24 rejects stall on the rim at about 0 mm depth, the
   same failure as low-pass breakage. A plausible reason is that the
@@ -386,7 +386,7 @@ look like lateral misses that end pushing on the port face.
 
 ### 5. Recovery data v1 failed, for an identifiable reason
 
-`mimicvla.dataset.recovery` re-executes each training clip 3 extra
+`mimicvla.dataset.variants.recovery` re-executes each training clip 3 extra
 times. Each copy adds an Ornstein–Uhlenbeck offset (about 3 mm and 2° RMS,
 fading to zero within 5 mm of the mouth) to the executed command, and labels
 each frame with the clean command back to the human target. Copy 0 reproduces

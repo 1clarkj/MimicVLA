@@ -3,9 +3,9 @@
 Runs three steps in order: a two-marker mount-stability check (a review flag,
 not proof that a marker moved), the queue for the restored-mount two-marker
 batch, and the queue for the single-marker and earlier two-marker clips
-(replayed by `mimicvla.dataset.replay_additional`).
+(replayed by `mimicvla.dataset.replay.wide_port_other`).
 
-    python -m mimicvla.dataset.curate
+    python -m mimicvla.dataset.review.queues
 """
 
 from __future__ import annotations

@@ -21,20 +21,20 @@ track() {
         --calibration $CAL --tip-x-mm 0 --output-dir outputs/dual_marker_comparison
     $PY -m mimicvla.cli evaluate-dual-recordings --video-dir video_data/double_marker \
         --calibration $CAL --reuse-tracking-from outputs/dual_marker_comparison
-    $PY -m mimicvla.dataset.rescore    # 12 mm scores shown in the review dashboard
+    $PY -m mimicvla.dataset.tracking.rescore    # 12 mm scores shown in the review dashboard
     # Per-session marker-to-tip offsets, then robot replays on the real and widened ports
-    $PY -m mimicvla.dataset.recalibrate
-    $PY -m mimicvla.dataset.replay --batch all
-    $PY -m mimicvla.dataset.render --batch dual_original
-    $PY -m mimicvla.dataset.replay_additional --batch all
-    $PY -m mimicvla.dataset.curate
+    $PY -m mimicvla.dataset.tracking.recalibrate
+    $PY -m mimicvla.dataset.replay.real_port --batch all
+    $PY -m mimicvla.dataset.replay.wide_port --batch dual_original
+    $PY -m mimicvla.dataset.replay.wide_port_other --batch all
+    $PY -m mimicvla.dataset.review.queues
 }
 
 select_clips() {
-    $PY -m mimicvla.dataset.export_review
-    $PY -m mimicvla.dataset.port_sweep
-    $PY -m mimicvla.dataset.audit   # reads the 75-clip intermediate export; see documentation/pipeline.md
-    $PY -m mimicvla.dataset.export
+    $PY -m mimicvla.dataset.selection.accepted
+    $PY -m mimicvla.dataset.selection.port_sweep
+    $PY -m mimicvla.dataset.selection.audit   # reads the 75-clip intermediate export; see documentation/pipeline.md
+    $PY -m mimicvla.dataset.selection.export
     $PY -m mimicvla.cli validate-sim-dataset --root outputs/datasets/usb_15x7_no_funnel_full_v2
     $PY -m mimicvla.dataset.excluded_starts
 }
