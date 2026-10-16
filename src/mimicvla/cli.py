@@ -85,6 +85,7 @@ def main() -> None:
     evaluate.add_argument("--seeds", type=int, nargs="+", default=[0])
     evaluate.add_argument("--output-dir", type=Path, default=Path("outputs/eval"))
     evaluate.add_argument("--video", action="store_true", help="save a video per rollout")
+    evaluate.add_argument("--device", default="cuda", help="cuda (default) or cpu, much slower")
 
     download = commands.add_parser("download", help="fetch the published data into data/")
     download.add_argument("--raw", action="store_true", help="also the 134 iPhone recordings (6.8 GB)")
@@ -141,6 +142,7 @@ def main() -> None:
             subprocess.run([sys.executable, "-m", "mimicvla.training.evaluate", args.checkpoint,
                             "--dataset-dir", str(start_dir), "--split", split, "--seed", str(seed),
                             "--output-dir", str(args.output_dir / f"{args.starts}_seed{seed}"),
+                            "--device", args.device,
                             *([] if args.video else ["--no-video"])], check=True)
     elif args.command == "download":
         from .dataset.publish.hub import download

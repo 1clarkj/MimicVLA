@@ -53,7 +53,10 @@ tests/          unit and integration tests
 ## Setup
 
 Python 3.12 and [uv](https://docs.astral.sh/uv/). Training needs a GPU with
-16 GB (an RTX 5060 Ti was used); everything else runs on a CPU.
+16 GB (an RTX 5060 Ti was used). Policy evaluation also expects a GPU; it
+runs on a CPU with `--device cpu`, but about four times slower (roughly
+25 min per seed on the 55 starts instead of 6). Everything else
+runs on a CPU.
 
 ```bash
 git clone https://github.com/1clarkj/MimicVLA && cd MimicVLA

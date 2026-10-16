@@ -4,8 +4,8 @@
 #   bash scripts/train.sh RUN_NAME STEPS [DATASET] [BATCH_SIZE]
 # DATASET is a dataset folder or a name under outputs/datasets/. Default: the
 # downloaded data/mimicvla-panda-usb (`mimicvla download`).
-# TRAIN_SUBSET=train16 trains on a nested 16-clip subset (data scaling curve);
-# DECAY_STEPS overrides the learning-rate decay horizon (default STEPS).
+# TRAIN_SUBSET=train16 trains on a nested 16-clip subset (data scaling curve).
+# The cosine learning-rate schedule always spans STEPS.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -45,7 +45,7 @@ exec .venv/bin/lerobot-train \
     --policy.resize_imgs_with_padding='[256,256]' \
     --policy.n_action_steps=10 \
     --policy.load_vlm_weights=false \
-    --policy.scheduler_decay_steps="${DECAY_STEPS:-$steps}" \
+    --policy.scheduler_decay_steps="$steps" \
     --policy.device=cuda \
     --policy.use_amp=false \
     --policy.push_to_hub=false \

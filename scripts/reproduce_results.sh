@@ -47,20 +47,23 @@ train() {
     bash $t lowpass_bs32_20k 20000 usb_15x7_lowpass2hz
     bash $t recovery_v2_bs32_10k 10000 usb_15x7_recovery
     bash $t lowpass_recovery_bs32_20k 20000 usb_15x7_lowpass2hz_recovery
-    # data scaling and mirroring: 10k steps on the 20k learning-rate schedule
-    TRAIN_SUBSET=train16 DECAY_STEPS=20000 bash $t raw_n16_bs32_10k 10000
-    TRAIN_SUBSET=train32 DECAY_STEPS=20000 bash $t raw_n32_bs32_10k 10000
-    DECAY_STEPS=20000 bash $t raw_mirror_bs32_10k 10000 usb_15x7_mirror
+    # data scaling and mirroring: 10k steps with a full 10k schedule, whereas
+    # raw_10k is the halfway checkpoint of the 20k run (see experiments.md)
+    TRAIN_SUBSET=train16 bash $t raw_n16_bs32_10k 10000
+    TRAIN_SUBSET=train32 bash $t raw_n32_bs32_10k 10000
+    bash $t raw_mirror_bs32_10k 10000 usb_15x7_mirror
 }
 
 evaluate_policy() {  # name checkpoint [extra args]
     local name=$1 ckpt=$2; shift 2
     for set in all72:$ALL72 excluded55:$EXC55; do for seed in 0 1 2 3 4; do
         local out=$EVAL/$name/${set%%:*}_seed$seed
-        [[ -f $out/summary.json ]] && continue
+        # summary.json is rewritten after every rollout; only .done marks a finished run
+        [[ -f $out.done ]] && continue
         mkdir -p "$EVAL/$name"
         $PY -m mimicvla.training.evaluate "$ckpt" --dataset-dir "${set#*:}" --split all \
             --n-action-steps 10 --no-video --seed $seed --output-dir "$out" "$@"
+        touch "$out.done"
     done; done
 }
 

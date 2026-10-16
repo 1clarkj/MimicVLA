@@ -97,6 +97,9 @@ success and failure. The final protocol:
   never entered training (32 failed the replay gate, 7 were rejected in
   review, 16 were never reviewed). Only the start pose is used. The 8-clip
   holdout is too small to rank policies (intervals about 60 points wide).
+  The 55 starts were also used to choose between policies (10k vs 20k
+  steps, and which policy to ship), so they are not a fully untouched test
+  set, and the 49% of the chosen policy is slightly optimistic.
 - Deep collisions (over 1 mm into the port walls) and peak contact force are
   reported next to success.
 
@@ -121,11 +124,18 @@ the best on unseen starts and collides least.
 
 **Why 10k steps beat 20k for raw labels.** The raw-label run was evaluated at
 both checkpoints, and 10k was better on every start set (unseen 49% vs 43%).
-With only about 7,300 training frames, 10k steps at batch 32 is 44 passes
-over the data and 20k is 88. My hypothesis is that the longer run memorises
-the exact demonstrated states, including their jitter, and becomes more
-brittle once a rollout leaves them, which happens early even from a training
-start. I did not measure a held-out loss to confirm it. The low-pass policies
+There are two possible causes, and this run cannot separate them:
+
+- **More passes over the data.** With only about 7,300 training frames, 10k
+  steps at batch 32 is 44 passes over the data and 20k is 88. The longer run
+  may memorise the exact demonstrated states, including their jitter, and
+  become more brittle once a rollout leaves them, which happens early even
+  from a training start.
+- **The learning-rate schedule.** The 10k checkpoint is halfway through a
+  20k-step cosine schedule, with the learning rate still at about half its
+  peak; the 20k checkpoint is fully annealed.
+
+I did not measure a held-out loss to confirm either. The low-pass policies
 use their 20k checkpoint.
 
 ## 4. What I tried, in order
@@ -192,7 +202,9 @@ still comes from a human motion.
   label statistics. On the low-pass model it recovers what smoothing lost:
   **+18 points on unseen starts [7, 30]**, force halves (415 → 216 N), deep
   collisions drop from 61% to 44%. On raw labels it changes nothing
-  measurable (+1.5 points [−9, +12]).
+  measurable (+1.5 points [−9, +12]). One caveat: the raw + recovery run
+  completed a full 10k-step learning-rate schedule, while the raw policy it
+  is compared with is the halfway checkpoint of a 20k run (see step 6).
 
 This supports the explanation in step 2: recovery data and raw jitter supply
 the same thing, so adding one to the other gives nothing. Three of the four
@@ -226,7 +238,8 @@ insert. Adding the 46 training mirrors cost 9 points on unseen starts
 
 - **Too few steps for more data.** With 110 episodes and the same 10k steps,
   each original clip is seen 40% less often, and training-start success also
-  fell (60% → 47%), which looks like underfitting.
+  fell (60% → 47%), which looks like underfitting. (The two runs also had
+  different learning-rate schedules; see step 6.)
 - **The mirrored data is not useful.** One person's starts may not be
   symmetric about the port, so the mirrored half is spent where tests rarely
   start. If the mirrors were useful, they should have helped even at 10k
@@ -246,10 +259,18 @@ before recording more.
 | 32 | 24% [16, 32] | 21% |
 | 64 | 49% [39, 59] | 4% |
 
-Same recipe, nested subsets. Going from 32 to 64 demonstrations added 25
-points [15, 36], more than 16 → 32. The gap between training and unseen
-starts shrinks from about 30 points at 16 demonstrations to about 10 at 64,
-and deep collisions almost disappear.
+Raw labels, batch 32, 10k steps, nested subsets. Going from 32 to 64
+demonstrations added 25 points [15, 36], more than 16 → 32. The gap between
+training and unseen starts shrinks from about 30 points at 16 demonstrations
+to about 10 at 64, and deep collisions almost disappear.
+
+**Caveat: the learning-rate schedules differ.** The 16- and 32-demo runs
+were meant to use the 20k-step schedule of the 64-demo run, but LeRobot
+silently shrinks the schedule to the number of training steps. So they
+completed a full 10k cosine schedule, while the 64-demo point is the
+halfway checkpoint of the 20k run. If anything, the smaller runs got the
+more complete training, so I do not think the schedule explains a 25-point
+gap, but only a matched rerun can rule it out.
 
 **This is the main conclusion.** Every method above changed unseen-start
 success by a few points at most; doubling the data added 25, and the curve
@@ -288,8 +309,12 @@ fixes where the policy goes wrong.
 - **Data quantity dominates.** From 64 imperfect demonstrations a VLA reaches
   about 50% on unseen starts, and doubling the data was worth more than every
   algorithmic change combined.
-- **Noise in human data can be a feature.** Tracking jitter acted as free
-  recovery data; removing it made the policy fit better and generalise worse.
+- **Noise in human data may be a feature.** Removing the tracking jitter
+  made the policy fit better and generalise worse, and adding recovery data
+  brought generalisation back. This suggests the jitter acts as free
+  recovery data, but it is a hypothesis: the direct test (training on
+  smooth labels with synthetic jitter added) was not run, and the low-pass
+  model also had fewer demonstrations.
 - **Evaluation decides the conclusion.** A single seed or an 8-clip holdout
   would have picked the wrong model. Multi-seed evaluation on unseen starts
   was the most important engineering choice of the project.
@@ -305,6 +330,10 @@ fixes where the policy goes wrong.
   with fixed lighting and no randomisation, so nothing here tests visual
   transfer. Contact forces are too high for real hardware (median peaks
   around 200 N); force is neither observed nor penalised during training.
+- **Evaluation.** The 55 unseen starts were also used for model selection,
+  and the data-scaling and recovery comparisons use different learning-rate
+  schedules (step 6). Both make the reported differences less clean than a
+  held-out test with matched training would.
 - **Scope.** One person, one port pose. The unseen starts test new start
   poses, not new scenes.
 

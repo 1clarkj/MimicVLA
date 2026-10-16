@@ -41,8 +41,8 @@ experiments that led to this protocol.
 | `lowpass_20k` | 2 Hz low-pass tracked poses | 49 (17 clips no longer insert after filtering) | 32 | 20k |
 | `recovery_v2_10k` | raw + gentle recovery copies (gain 0.15) | 64 | 32 | 10k |
 | `lowpass_recovery_20k` | low-pass + gentle recovery copies | 49 | 32 | 20k |
-| `raw_n16_10k`, `raw_n32_10k` | raw, nested subsets | 16 / 32 | 32 | 10k (20k LR schedule) |
-| `raw_mirror_10k` | raw + mirrored trajectories | 110 | 32 | 10k (20k LR schedule) |
+| `raw_n16_10k`, `raw_n32_10k` | raw, nested subsets | 16 / 32 | 32 | 10k (full 10k LR schedule) |
+| `raw_mirror_10k` | raw + mirrored trajectories | 110 | 32 | 10k (full 10k LR schedule) |
 | `dsrl_v1`, `dsrl_v2` | frozen `lowpass_20k` + SAC noise actor | 64 | – | 30k / 60k decisions |
 
 All start from `lerobot/smolvla_base` and use both cameras, the 9-D Panda
@@ -75,8 +75,18 @@ steps 2–4.
 
 ## 2. Data scaling
 
-Same recipe as `raw_10k` (raw labels, batch 32, 10k steps, learning-rate
-schedule of the 20k run so the 64-demo point is the same checkpoint).
+Raw labels, batch 32, 10k steps. **The learning-rate schedules are not
+matched.** The 64-demo point is the 10k checkpoint of the 20k-step
+`raw_bs32_20k` run, where the cosine schedule is halfway (learning rate about
+51% of its peak). The 16- and 32-demo runs (and the mirror run, section 3)
+were launched with a 20k decay horizon to match, but LeRobot rescales the
+schedule when the step count is smaller than the decay horizon
+("Auto-scaling LR scheduler … 20000 → 10000" in the training logs). They
+therefore warmed up for 500 steps and decayed fully to the minimum learning
+rate by step 10k. The same applies to `recovery_v2_10k` (section 4). The
+smaller runs received the more complete schedule, which would favour them,
+so the schedule is unlikely to explain the 25-point gain from 32 to 64
+demonstrations, but a matched rerun is needed to rule it out.
 `mimicvla.dataset.splits` draws nested subsets of the 64 training clips
 (seed 2026): 16 ⊂ 32 ⊂ 64.
 
@@ -142,7 +152,9 @@ Likely reasons, untested:
 
 1. **Fixed step budget.** Both runs train for 10k steps, so with 110 episodes
    each original clip is seen about 40% less often. The training-start drop
-   is consistent with underfitting.
+   is consistent with underfitting. The mirror run did complete its
+   learning-rate schedule while `raw_10k` did not (section 2), so the two
+   are not perfectly matched.
 2. **Mirrored starts may not match test starts.** If real start states
    cluster on one side of the port (one person, one approach habit), mirrored
    data spends capacity on the other side, which the excluded starts rarely
@@ -183,7 +195,10 @@ Interpretation:
 - **Low-pass labels trade generalisation for fit.** They give the best
   training-start success (82%) but cause the most force on new starts.
 - **Caveat:** raw-label cells use the 10k checkpoint, low-pass cells 20k.
-  For raw labels, 10k beat 20k on every start set (section 1).
+  For raw labels, 10k beat 20k on every start set (section 1). `raw_10k` is
+  halfway through a 20k learning-rate schedule, while `recovery_v2_10k`
+  completed a full 10k schedule (section 2), so the raw row pair is not
+  schedule-matched.
 
 ## 5. Denoising steps and inference latency
 
