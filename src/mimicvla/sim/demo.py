@@ -20,7 +20,9 @@ def scripted_actions(env: PandaUSBEnv) -> Iterator[np.ndarray]:
     for _ in range(30):
         yield np.zeros(6)
 
+    # Aim slightly beyond the measured 12 mm seated depth to compensate for
+    # position-actuator lag; the modeled cavity remains 18 mm deep.
     for _ in range(70):
-        yield np.r_[insertion_axis * (0.020 / 70), np.zeros(3)]
+        yield np.r_[insertion_axis * (0.026 / 70), np.zeros(3)]
     for _ in range(40):
         yield np.zeros(6)

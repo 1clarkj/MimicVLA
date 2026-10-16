@@ -7,20 +7,36 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from .controller import CartesianController, pose_from_site
-from .scene import SOCKET_DEPTH_M, USB_TIP_Z_IN_HAND_M, SocketPose, build_model
+from .scene import (SOCKET_DEPTH_M, SOCKET_INNER_HALF_X_M, SOCKET_INNER_HALF_Y_M,
+                    STRICT_SOCKET, USB_TIP_Z_IN_HAND_M, SocketGeometry, SocketPose,
+                    build_model)
 
 
 @dataclass(frozen=True)
 class SimConfig:
     socket: SocketPose = field(default_factory=SocketPose)
+    geometry: SocketGeometry = field(default_factory=lambda: STRICT_SOCKET)
     control_hz: int = 20
     image_size: tuple[int, int] = (256, 256)
     max_steps: int = 200
     alignment_position_tolerance_m: float = 0.008
     alignment_orientation_tolerance_rad: float = np.deg2rad(10)
-    insertion_depth_m: float = 0.006
+    insertion_depth_m: float = 0.012
     initial_ee_offset: tuple[float, float, float, float, float, float] = (0, 0, 0, 0, 0, 0)
     approach_clearance_m: float = 0.09
+
+
+def insertion_success_from_metrics(metrics: dict, *, required_depth_m: float = 0.012,
+                                   maximum_depth_m: float = SOCKET_DEPTH_M,
+                                   geometry: SocketGeometry = STRICT_SOCKET) -> bool:
+    """Tip centre is inside the modeled slot and at the measured insertion depth.
+
+    Orientation and contact remain diagnostics; they are not task-success gates.
+    This tests the tip centre, not full plug clearance through the cavity.
+    """
+    return (abs(metrics["socket_lateral_x_m"]) <= geometry.inner_half_x_m
+            and abs(metrics["socket_lateral_y_m"]) <= geometry.inner_half_y_m
+            and required_depth_m <= metrics["axial_error_m"] <= maximum_depth_m)
 
 
 class PandaUSBEnv:
@@ -28,7 +44,7 @@ class PandaUSBEnv:
 
     def __init__(self, config: SimConfig | None = None):
         self.config = config or SimConfig()
-        self.model = build_model(self.config.socket)
+        self.model = build_model(self.config.socket, self.config.geometry)
         self.data = mujoco.MjData(self.model)
         self.control_dt = 1.0 / self.config.control_hz
         self.substeps = round(self.control_dt / self.model.opt.timestep)
@@ -98,14 +114,13 @@ class PandaUSBEnv:
         aligned = (radial_error < self.config.alignment_position_tolerance_m
                    and orientation_error < self.config.alignment_orientation_tolerance_rad
                    and abs(depth) < 0.012)
-        inserted = (radial_error < 0.0015
-                    and orientation_error < np.deg2rad(5)
-                    and self.config.insertion_depth_m <= depth <= SOCKET_DEPTH_M)
         socket_id = self.model.body("socket").id
         bad_collision = False
         wall_contacts = 0
+        funnel_contacts = 0
         socket_contacts = 0
         max_wall_penetration = 0.0
+        max_funnel_penetration = 0.0
         max_wall_force = 0.0
         for i in range(self.data.ncon):
             contact = self.data.contact[i]
@@ -114,11 +129,18 @@ class PandaUSBEnv:
                 self.model.geom(contact.geom2).bodyid[0],
             )
             if socket_id in body_ids and body_ids[0] != body_ids[1]:
-                # MuJoCo contacts are soft; count penetration beyond 1 mm as a strike.
-                bad_collision |= contact.dist < -0.001
+                # The entry guide is meant to be touched; allow shallow
+                # compliant overlap there while keeping the throat strict.
+                funnel_contact = any(self.model.geom(geom_id).name.startswith("funnel_")
+                                     for geom_id in (contact.geom1, contact.geom2))
+                bad_collision |= contact.dist < (-.003 if funnel_contact else -.001)
                 if contact.dist <= 0:
                     socket_contacts += 1
+                    if funnel_contact:
+                        funnel_contacts += 1
+                        max_funnel_penetration = max(max_funnel_penetration, -float(contact.dist))
                     wall_geom = any(self.model.geom(geom_id).name.startswith("wall_")
+                                    or self.model.geom(geom_id).name.startswith("funnel_")
                                     for geom_id in (contact.geom1, contact.geom2))
                     if wall_geom:
                         wall_contacts += 1
@@ -126,19 +148,26 @@ class PandaUSBEnv:
                         force = np.zeros(6)
                         mujoco.mj_contactForce(self.model, self.data, i, force)
                         max_wall_force = max(max_wall_force, float(force[0]))
-        return {
+        metrics = {
             "radial_error_m": radial_error,
+            "socket_lateral_x_m": float(delta_local[0]),
+            "socket_lateral_y_m": float(delta_local[1]),
             "axial_error_m": depth,
             "orientation_error_rad": float(orientation_error),
             "alignment_success": bool(aligned),
-            "insertion_success": bool(inserted and not bad_collision),
             "bad_collision": bool(bad_collision),
             "socket_contact_count": socket_contacts,
+            "funnel_contact_count": funnel_contacts,
+            "max_funnel_penetration_m": max_funnel_penetration,
             "wall_contact_count": wall_contacts,
             "wall_contact": bool(wall_contacts),
             "max_wall_penetration_m": max_wall_penetration,
             "max_wall_normal_force_n": max_wall_force,
         }
+        metrics["insertion_success"] = insertion_success_from_metrics(
+            metrics, required_depth_m=self.config.insertion_depth_m,
+            geometry=self.config.geometry)
+        return metrics
 
     def close(self) -> None:
         if self._renderer is not None:

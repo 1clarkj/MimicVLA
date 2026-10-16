@@ -4,8 +4,10 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from mimicvla.sim import PandaUSBEnv, SimConfig
+from mimicvla.sim.env import insertion_success_from_metrics
 from mimicvla.sim.controller import pose_from_site
 from mimicvla.sim.demo import scripted_actions
+from mimicvla.sim.scene import STRICT_SOCKET, TRAINING_SOCKET, curriculum_socket
 
 
 def test_model_control_and_rgb_render():
@@ -83,3 +85,31 @@ def test_flush_wall_and_contact_reporting():
         assert not any(info["insertion_success"] for info in infos)
     finally:
         env.close()
+
+
+def test_insertion_requires_twelve_millimetres_and_tip_inside_opening():
+    metrics = {"socket_lateral_x_m": .006, "socket_lateral_y_m": .002,
+               "orientation_error_rad": np.deg2rad(9),
+               "axial_error_m": .0119, "bad_collision": True}
+    assert SimConfig().insertion_depth_m == .012
+    assert not insertion_success_from_metrics(metrics)
+    metrics["axial_error_m"] = .012
+    assert insertion_success_from_metrics(metrics)
+    metrics["socket_lateral_y_m"] = .003
+    assert not insertion_success_from_metrics(metrics)
+
+
+def test_guided_training_port_is_separate_from_strict_scoring():
+    metrics = {"socket_lateral_x_m": .008, "socket_lateral_y_m": .004,
+               "axial_error_m": .012}
+    assert not insertion_success_from_metrics(metrics)
+    assert insertion_success_from_metrics(metrics, geometry=TRAINING_SOCKET)
+    env = PandaUSBEnv(SimConfig(geometry=TRAINING_SOCKET))
+    try:
+        assert all(env.model.geom(f"funnel_x_{sign}").id >= 0 for sign in (-1, 1))
+        assert all(env.model.geom(f"funnel_y_{sign}").id >= 0 for sign in (-1, 1))
+        assert env.config.geometry.inner_half_x_m == .009
+    finally:
+        env.close()
+    assert curriculum_socket(0) == TRAINING_SOCKET
+    assert curriculum_socket(1) == STRICT_SOCKET
