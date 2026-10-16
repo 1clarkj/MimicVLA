@@ -11,7 +11,7 @@ or of ``<clip>.jsonl`` files, as in the published raw dataset. Each recording:
    alignment from the reset pose to the first tracked pose;
 3. keeps the episode only if the tip centre passes 7 mm deep during the human
    motion, finishes at least 12 mm deep, and the replay never penetrates the
-   port walls by more than 1 mm or reaches a joint limit;
+   port walls by more than 1 mm (touching them is fine) or reaches a joint limit;
 4. re-executes the same actions with the two policy cameras rendering and
    saves state, images and actions from the end of the alignment onward.
 

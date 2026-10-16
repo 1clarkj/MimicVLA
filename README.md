@@ -46,7 +46,7 @@ src/mimicvla/
   cli.py        the `mimicvla` command
 scripts/        train.sh, reproduce_results.sh
 calibration/    printable ChArUco and marker sheets, example setup file
-documentation/  experiments.md (every run in detail), figures, videos
+documentation/  data_collection.md, experiments.md (every run in detail), figures, videos
 tests/          unit and integration tests
 ```
 
@@ -98,15 +98,34 @@ uv run mimicvla build-dataset data/mimicvla-human-usb-raw/tracking \
 This selects the same 72 episodes with the same actions as the published set.
 `bash scripts/reproduce_results.sh` reruns every experiment in RESULTS.md.
 
+How long things take on one 16 GB GPU (RTX 5060 Ti), run one after another:
+
+| Task | Time |
+|---|---|
+| Evaluate the published policy, 5 seeds × 55 unseen starts | about 30 min |
+| Rebuild the training set from the raw recordings | about 6 min |
+| Train one policy (10k steps) and evaluate it as above | about 1.5 h |
+| Everything in `reproduce_results.sh`: 5 datasets, 7 training runs, 2 DSRL runs, 15 policies × 10 evaluations | about 30 h |
+
+The full run is dominated by evaluation (about 6 min per policy, seed and
+start set). Evaluations of different policies can share one GPU.
+
 ## Option B: record your own demonstrations
 
 You need a phone, a printer, a USB stick and a port.
 
 **1. Print and attach the markers.** Print the two sheets in `calibration/`.
 Tape a plug marker (id 0) to the USB stick and the 50 mm port marker (id 1)
-flat next to the port.
+flat next to the port. A second plug marker on another face of the plug is
+optional but highly recommended: with one marker, the hand hides it during
+insertion, and the second one raised the share of tracked frames from 70%
+to 90% (see [data_collection.md](documentation/data_collection.md)).
 
-**2. Calibrate the phone.** Film the flat ChArUco sheet for about 30 seconds.
+**2. Calibrate the phone.** The camera settings must stay fixed for the
+calibration and every recording, so the stock iPhone camera app does not
+work: it refocuses, re-exposes and switches lenses on its own. I used
+[Filmic Pro](https://www.filmicpro.com/) (free), which locks focus, exposure
+and the lens. Film the flat ChArUco sheet for about 30 seconds.
 Move the phone around it: tilt it about 30° left, right, up and down, film it
 from near and far, and move the board into each corner of the image. Use the
 same lens, zoom and resolution as for the demonstrations, and turn off video
@@ -131,8 +150,10 @@ enough of the image.
   side).
 
 Both are 4 × 4 transforms in metres, measured with a ruler. The docstring of
-`src/mimicvla/vision/setup.py` defines every frame. A second plug marker is
-optional (`usb_marker_2`); `mimicvla fit-marker-mount` fits its transform.
+`src/mimicvla/vision/setup.py` defines every frame. For a second plug marker,
+add `usb_marker_2`; `mimicvla fit-marker-mount` fits its transform. If you
+re-tape a marker, start a new setup file: in my recordings the offset shifted
+by several millimetres between sessions.
 
 **4. Record and track.** Keep both markers in view from a few centimetres
 before the port until the plug is seated.
@@ -154,8 +175,10 @@ uv run mimicvla build-dataset outputs/tracking --output outputs/datasets/my_set
 bash scripts/train.sh my_run 10000 outputs/datasets/my_set
 ```
 
-`build-dataset` keeps a recording only if its replay inserts at least 12 mm
-without hitting the port walls (details: `mimicvla build-dataset --help`).
+`build-dataset` keeps a recording only if its replay ends at least 12 mm
+deep. Contact with the port walls is fine; only penetrating them by more
+than 1 mm (a simulator artefact) or a joint limit rejects it (details:
+`mimicvla build-dataset --help`).
 Watch the replay videos it writes to `outputs/datasets/my_set_replays/` and
 pass `--clips list.txt` to keep only the clips you accept. The simulated port
 is 15 × 7 mm by default (`--port-mm`), wider than a real USB-A port because

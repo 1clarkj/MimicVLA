@@ -8,9 +8,10 @@ rollouts from 55 start poses no model ever trained on, and 60% [52, 68] from
 its training starts. Every number is a mean over 5 seeds per start with a
 95% bootstrap interval.
 
-Setup and commands are in the [README](README.md). Full tables, every run
-and the development history are in
-[documentation/experiments.md](documentation/experiments.md).
+Setup, commands and reproduction times are in the [README](README.md). More
+detail is in two companion files: [data_collection.md](documentation/data_collection.md)
+(recording, tracking problems and fixes) and
+[experiments.md](documentation/experiments.md) (every run and table).
 
 ![iPhone recording, its Panda replay, and the policy from an unseen start](documentation/videos/unseen_start_222751.gif)
 
@@ -38,20 +39,28 @@ flowchart LR
     E --> F[Closed-loop eval<br>5 seeds x 55 unseen starts]
 ```
 
-1. **Tracking.** ArUco markers sit on the plug and next to the port, and the
-   phone is calibrated with a ChArUco board. The plug pose is measured
-   relative to the port marker, so the handheld camera's motion cancels. Each
-   recording session has a setup file with its marker transforms; I fitted
-   the marker-to-tip offset per session because it drifted between sessions.
-   The remaining error is 1–3 mm (90th percentile).
-2. **Replay.** The plug-tip trajectory drives the Panda's end effector through
+1. **Recording.** ArUco markers on the plug and next to the port, filmed with
+   locked focus and exposure (Filmic Pro; the stock camera app refocuses and
+   changes the calibration mid-clip). The plug pose is measured relative to
+   the port marker, so the handheld camera's motion cancels.
+2. **Tracking: from one plug marker to two.** With one marker, the hand or
+   motion blur hid it exactly during the last centimetres before entry: the
+   pose was missing in 30% of frames, with a median longest gap of 0.8 s.
+   A second marker on another face of the plug raised coverage to 90% and
+   cut the median longest gap to 7 frames (0.3 s). A second problem was
+   offset drift: the marker-to-tip offset differed by 3.5–7.5 mm between
+   sessions, so each session got its own fitted setup file. The remaining
+   error is 1–3 mm. Details: [data_collection.md](documentation/data_collection.md).
+3. **Replay.** The plug-tip trajectory drives the Panda's end effector through
    differential IK. Two simulated cameras (front and wrist), the joint state
    and the 6-D Cartesian action are recorded at 20 Hz. The policy never sees
    the phone video.
-3. **Selection.** I reviewed every clip next to its replay (104 accepted). A
-   replay is kept if the plug passes 7 mm deep during the human motion,
-   finishes at least 12 mm deep, and never penetrates the port walls or hits
-   a joint limit. 72 episodes pass: 64 for training, 8 held out.
+4. **Selection.** I reviewed every clip next to its replay (104 accepted). A
+   replay is kept if the plug passes 7 mm deep during the human motion and
+   finishes at least 12 mm deep. Contact with the port walls is allowed;
+   only penetrating them by more than 1 mm (a simulator artefact) or hitting
+   a joint limit rejects a replay. 72 episodes pass: 64 for training, 8 held
+   out.
 
 ### The port is widened
 
@@ -68,9 +77,11 @@ I replayed the accepted clips into 46 port sizes:
 | 14 × 7 mm | 70 | 47 |
 | 13.4 × 5.9 mm (real) | 44 | 34 |
 
-15 × 7 mm is the smallest opening that keeps over 70 clips with some margin.
-**All results use this port.** It is easier than the real task; see
-[Limitations](#5-limitations). Success means the plug-tip centre is inside
+Hugging Face recommends about 50 episodes to fine-tune SmolVLA. I aimed for
+at least 70, to leave a holdout and because the data was already scarce, and
+chose the smallest opening that keeps that many with some margin.
+**All results use the 15 × 7 mm port.** It is easier than the real task (see
+[Limitations](#6-limitations)). Success means the plug-tip centre is inside
 the opening and at least 12 mm deep within 20 s.
 
 ## 2. How the policies are evaluated
@@ -79,7 +90,7 @@ My first comparisons used one rollout per start, and they were misleading:
 across five evaluations of similar policies, 26 of 72 starts flipped between
 success and failure. The final protocol:
 
-- **5 seeds per start**, because SmolVLA samples flow-matching noise.
+- **5 seeds per start**, because SmolVLA samples its actions from noise.
 - **95% bootstrap intervals over starts**, and paired differences when two
   policies run from the same starts.
 - **55 unseen starts** as the main test: the start poses of recordings that
@@ -89,7 +100,7 @@ success and failure. The final protocol:
 - Deep collisions (over 1 mm into the port walls) and peak contact force are
   reported next to success.
 
-## 3. Results
+## 3. Final results
 
 | Policy | Training starts (64) | Unseen starts (55) | Deep-collision rollouts (55) | Median peak force (55) |
 |---|---|---|---|---|
@@ -98,43 +109,123 @@ success and failure. The final protocol:
 | 2 Hz low-pass labels | **82%** [74, 89] | 34% [23, 46] | 61% | 415 N |
 | low-pass labels + recovery data | 66% [57, 75] | **52%** [43, 62] | 44% | 216 N |
 
-SmolVLA (`lerobot/smolvla_base`), batch 32. Raw-label policies use the 10k-step
-checkpoint, which beat 20k on every start set; low-pass policies use 20k.
+- **Raw labels:** actions computed directly from the tracked poses.
+- **Low-pass labels:** the tracked poses are smoothed at 2 Hz before
+  retargeting (step 2 below).
+- **Recovery data:** extra copies of each demonstration that start slightly
+  off the human path and are labelled with a correction back to it (step 3).
 
-**I would ship the simplest policy: raw labels, no augmentation.** It is
-within noise of the best on unseen starts and collides least.
+All are SmolVLA (`lerobot/smolvla_base`) fine-tuned with batch 32. **I would
+ship the simplest policy: raw labels, no augmentation.** It is within noise of
+the best on unseen starts and collides least.
 
-### Finding 1: the best-looking model generalised worst
+**Why 10k steps beat 20k for raw labels.** The raw-label run was evaluated at
+both checkpoints, and 10k was better on every start set (unseen 49% vs 43%).
+With only about 7,300 training frames, 10k steps at batch 32 is 44 passes
+over the data and 20k is 88. My hypothesis is that the longer run memorises
+the exact demonstrated states, including their jitter, and becomes more
+brittle once a rollout leaves them, which happens early even from a training
+start. I did not measure a held-out loss to confirm it. The low-pass policies
+use their 20k checkpoint.
 
-Marker tracking is jittery (72% of the tip's angular-velocity power is above
-5 Hz), so I low-pass filtered the tracked poses at 2 Hz. On its training
-starts that model is the best by 20 points. On unseen starts it is **15
-points worse** than raw labels [4, 26], collides deeply in 61% of rollouts and
-pushes at over 400 N. Smooth labels are easy to imitate, but they remove the
-small off-trajectory states and corrections the jitter contains, so from a
-new start the policy drifts and does not recover.
+## 4. What I tried, in order
+
+Each step responded to the failures of the previous one. Full tables are in
+[experiments.md](documentation/experiments.md).
+
+### Step 1: batch size
+
+The first policy (batch 1, 30k steps) succeeded on only 32% of its own
+training starts and had learned only the forward approach, not the lateral
+and rotational corrections. **Batch 32 fixed it** (60%).
+
+### Step 2: smoothing the labels — the best-looking model generalised worst
+
+Failed rollouts drifted away from the port. The tracked poses are jittery
+(72% of the tip's angular-velocity power is above 5 Hz, where deliberate hand
+motion does not reach), so I low-pass filtered them at 2 Hz before
+retargeting, to give the policy cleaner actions to imitate.
+
+On its training starts, this model is the best by 20 points. On unseen starts
+it is **15 points worse** than raw labels [4, 26], collides deeply in 61% of
+rollouts, and pushes at over 400 N.
 
 ![Low-pass and raw-label policies from the same unseen start](documentation/videos/unseen_start_222751_lowpass_vs_raw.gif)
 
-*Same start as above. Low-pass (bottom left) fails on 0/5 seeds; raw labels
-(bottom right) insert on 5/5.*
+*Same start as at the top. Low-pass (bottom left) fails on 0/5 seeds; raw
+labels (bottom right) insert on 5/5.*
 
-Without the 55 unseen starts I would have submitted this model.
+Why, as I understand it:
 
-### Finding 2: recovery data helps once the labels are gentle
+- **The jitter was useful.** Raw tracking jitters from frame to frame, so
+  raw demonstrations contain many states slightly off the smooth path,
+  each paired with an action that comes back. This works like noise
+  injection during data collection. Smoothing removes it: every
+  demonstration becomes one clean path, so the policy has never seen a state
+  next to the path. From a new start it is off-distribution at once and does
+  not know how to recover.
+- **Why the force rises.** The low-pass failures are not wild: they end
+  tilted only 14–17° (raw: 28–50°) but laterally off the opening. The policy
+  confidently replays the approach-and-push motion it learned, without the
+  small corrections it never saw, and ends up pushing on the port face.
+- **A confound:** filtering broke 17 clips (they stall on the rim), so the
+  low-pass model trained on 49 demonstrations instead of 64. Step 6 shows how
+  much 15 demonstrations matter, so part of the drop is less data.
 
-Failed rollouts end centimetres from the port, the classic behaviour-cloning
-drift. I generated DART-style recovery data: each clip re-executed with a
-small random offset (about 3 mm, 2°), labelled with a correction back to the
-human trajectory.
+Without the 55 unseen starts I would have submitted this model; the 8-clip
+holdout could not tell the two apart.
 
-- **Version 1 removed the whole offset in one step** and dropped success from
-  60% to 25%: the labels became large and abrupt, and the policy overshot.
-- **Version 2 removes 15% per step**, matching the human label statistics. It
-  repairs the low-pass model (+18 points [7, 30]) and halves its force, but
-  adds nothing to raw labels, whose jitter already provides that variation.
+### Step 3: recovery data — it works once the labels are human-scale
 
-### Finding 3: more human data is the strongest lever
+If the missing ingredient is off-path states, I can add them explicitly
+(DART-style). Each training clip is re-executed three more times with a
+smooth random offset of about 3 mm and 2° added to the command, and each
+frame is labelled with a correction back towards the human path. Every label
+still comes from a human motion.
+
+- **Version 1 removed the whole offset in one step.** Success fell from 60% to
+  25%: the rotation labels were almost twice as large as human ones, so the
+  policy learned abrupt corrections and overshot.
+- **Version 2 removes 15% of the offset per step**, which matches the human
+  label statistics. On the low-pass model it recovers what smoothing lost:
+  **+18 points on unseen starts [7, 30]**, force halves (415 → 216 N), deep
+  collisions drop from 61% to 44%. On raw labels it changes nothing
+  measurable (+1.5 points [−9, +12]).
+
+This supports the explanation in step 2: recovery data and raw jitter supply
+the same thing, so adding one to the other gives nothing. Three of the four
+label × recovery combinations land at 49–52% on unseen starts. Processing the
+labels differently moves the result by a few points at most; the ceiling is
+set by something else.
+
+### Step 4: RL on the noise (DSRL) — no gain
+
+To improve the policy without breaking what it learned from humans, I tried
+DSRL (Wagenmaker et al., 2025): SmolVLA stays frozen, and a small SAC policy
+chooses the initial flow-matching noise for each action chunk, so every
+action is still produced by the human-trained model. The reward is depth
+progress plus a success bonus, minus force above 50 N, deep collisions and
+time. Two runs (30k and 60k decisions) on the low-pass model, training starts
+only.
+
+It gained +0.6 points [−4.4, +5.3], and fixing the noise to zero did just as
+well. The base policy's failures are systematic (it goes to the wrong place
+whatever the noise), so choosing among its own behaviours cannot fix them.
+RL would have to change the weights.
+
+### Step 5: mirror augmentation — no gain
+
+Flipping images is invalid here: the cameras are not symmetric about the
+port, and a mirrored joint state is not a valid Panda state. Instead I
+mirrored the human trajectories across the port's vertical mid-plane and
+replayed them, which gives physically valid demonstrations. 48 of 72 still
+insert. Adding the 46 training mirrors cost 9 points on unseen starts
+[−18, +1] and raised deep collisions from 4% to 17%. Either 10k steps
+underfit the larger set (training-start success also fell), or one person's
+starts are not symmetric, so the mirrored half is spent where tests rarely
+start. A longer run would tell these apart; I did not run it.
+
+### Step 6: more human data — the strongest lever
 
 ![Data scaling](documentation/figures/data_scaling.png)
 
@@ -144,47 +235,75 @@ human trajectory.
 | 32 | 24% [16, 32] | 21% |
 | 64 | 49% [39, 59] | 4% |
 
-64 vs 32 is +25 points [15, 36], more than 16 → 32. The gap between training
-and unseen starts shrinks from about 30 points at 16 demonstrations to about
-10 at 64. The curve has not flattened.
+Same recipe, nested subsets. Going from 32 to 64 demonstrations added 25
+points [15, 36], more than 16 → 32. The gap between training and unseen
+starts shrinks from about 30 points at 16 demonstrations to about 10 at 64,
+and deep collisions almost disappear.
 
-### Finding 4: inference speed is not the bottleneck
+**This is the main conclusion.** Every method above changed unseen-start
+success by a few points at most; doubling the data added 25, and the curve
+has not flattened. The policy is data-limited, and getting much further
+probably needs several times more demonstrations. That is good news for
+this pipeline: each clip takes seconds to film, and its cost is the
+tracking quality, not the quantity.
 
-One 50-action chunk takes 114 ms on an RTX 5060 Ti with the default 10
-denoising steps, against a 500 ms budget (10 actions at 20 Hz). 5 steps
-(71 ms) is within noise of 10; 1 step (37 ms) costs 17 points.
+### Step 7: inference — re-planning and denoising steps
 
-## 4. What did not work
+A VLA is large (SmolVLA: 450M parameters), and on a real arm it has to keep
+up with the control loop, especially in contact, where corrections must be
+fast. So I measured whether speed limits this policy and what it costs to
+make it faster.
 
-- **DSRL** (SAC choosing SmolVLA's initial noise, base model frozen): +0.6
-  points [−4.4, +5.3], no more than fixing the noise to zero. The base
-  policy's errors are systematic, not unlucky noise draws.
-- **Mirror augmentation.** Flipping images is invalid (the cameras are not
-  symmetric and a mirrored joint state is not a Panda state), so I mirrored
-  the human trajectories across the port and replayed them. Adding these 46
-  episodes cost 9 points [−18, +1] on unseen starts; a longer run might
-  recover it, but I did not run one.
-- **Batch size 1** learned only the forward approach (32% on its own
-  training starts). Batch 32 fixed it.
-- **Re-planning every 2 instead of 10 actions** gave a small, inconsistent
-  gain and always more collisions.
+- **Latency fits with room to spare.** One 50-action chunk takes 114 ms on an
+  RTX 5060 Ti with the default 10 denoising steps (about 28 ms for the
+  vision-language model plus 8.6 ms per step). The policy executes 10 actions
+  at 20 Hz per chunk, a 500 ms budget. Even a loaded CPU (324 ms) fits, so
+  this policy would not need a large onboard GPU.
+- **Fewer steps are not free.** 5 steps (71 ms) is within noise of 10, but
+  1 step (37 ms) loses 17 points on training starts [10, 24] and nearly
+  doubles deep collisions.
+  In contact, the sample quality of the action matters, not just its speed.
+- **Re-planning more often did not help.** Executing 2 instead of 10 actions
+  per chunk gave a small, inconsistent gain and always more collisions,
+  because consecutive chunks are independent samples and switching between
+  them makes contact jerky.
 
-## 5. Limitations
+So speed is not the bottleneck: the headroom could go to re-planning more
+often (with smoothing between chunks) or to cheaper hardware, but neither
+fixes where the policy goes wrong.
 
-- **Simulation only**, with rendered images: nothing here tests sim-to-real.
-- **The port is widened** to 15 × 7 mm, and the plug is rigidly attached to
-  the hand (no grasp).
-- **Contact forces are too high** (median peaks around 200 N). Force is
-  neither observed nor penalised.
-- **One person, one port pose.** The unseen starts test new start poses, not
-  new scenes.
+## 5. Conclusions
 
-## 6. Next steps
+- **Data quantity dominates.** From 64 imperfect demonstrations a VLA reaches
+  about 50% on unseen starts, and doubling the data was worth more than every
+  algorithmic change combined.
+- **Noise in human data can be a feature.** Tracking jitter acted as free
+  recovery data; removing it made the policy fit better and generalise worse.
+- **Evaluation decides the conclusion.** A single seed or an 8-clip holdout
+  would have picked the wrong model. Multi-seed evaluation on unseen starts
+  was the most important engineering choice of the project.
 
-1. **Record more demonstrations.** It is the only change that moved unseen
-   success by more than noise, and it has not saturated.
+## 6. Limitations
+
+- **Real to sim.** The human motion is measured with 1–3 mm error, so the
+  port is widened to 15 × 7 mm, and the plug is rigidly attached to the hand
+  (no grasp). The human corrected using force and touch, which the robot
+  replay cannot reproduce: it re-executes the positions only. The simulated
+  contact was not identified against the real port.
+- **Sim to real.** No policy ran on hardware. Training images are rendered
+  with fixed lighting and no randomisation, so nothing here tests visual
+  transfer. Contact forces are too high for real hardware (median peaks
+  around 200 N); force is neither observed nor penalised during training.
+- **Scope.** One person, one port pose. The unseen starts test new start
+  poses, not new scenes.
+
+## 7. Next steps
+
+1. **Record more demonstrations**, with two markers on a rigid mount from the
+   start. It is the only change that moved unseen success by more than
+   noise, and it has not saturated.
 2. **Add force.** Observe wrist force, penalise sustained high force, and
-   fine-tune with RL on the actions rather than the noise.
+   fine-tune the weights with RL rather than only the noise.
 3. **Shrink the port** towards the real size as an RL curriculum.
 4. **Use a world model as the evaluator.** Trustworthy evaluation was the
    scarce resource here; a learned model that ranks policies like the

@@ -1,8 +1,10 @@
 # Experiments
 
-All numbers are closed-loop MuJoCo rollouts of fine-tuned SmolVLA policies,
-not demonstration replays. The story and the main conclusions are in
-[RESULTS.md](../RESULTS.md); this page has the full tables.
+Everything behind [RESULTS.md](../RESULTS.md): the full tables of every
+policy, the development history that led to the final protocol, and the
+details of the data pipeline. Policy numbers are closed-loop MuJoCo
+rollouts, not demonstration replays. Recording and tracking are covered in
+[data_collection.md](data_collection.md).
 
 ## Protocol
 
@@ -259,7 +261,7 @@ Interpretation:
   `median_chunk_ms`. While four evaluations share the GPU, it reads about
   290 ms at 10 steps. Use the idle benchmark above, not those numbers.
 
-## 7. Development history (single rollouts, 14–15 Oct)
+## 7. Development history (single rollouts)
 
 These runs used one rollout per start on the 72 dataset starts. With 72
 starts one standard error is about ±6 points, and with 8 holdout starts one
@@ -392,7 +394,7 @@ clips, gain 0.15 brings label spread back to human scale: 7.0–7.7 mrad and
 returns over about 0.3 s, with the same noise and the same gate pass rate.
 It was trained afterwards; see the follow-up below and section 4.
 
-### Follow-up (15 Oct): gentle recovery labels and DSRL
+### Follow-up: gentle recovery labels and DSRL
 
 All runs on the 72 start states, one rollout each, re-plan every 10 steps.
 
@@ -420,6 +422,103 @@ All runs on the 72 start states, one rollout each, re-plan every 10 steps.
   low-pass-based policies, 40 starts always succeed, 6 always fail (3 of them
   holdout) and 26 flip between runs. Differences of ±4/72 are within noise;
   future comparisons need several seeds per start.
+
+## Data pipeline details
+
+Recording and tracking problems are in [data_collection.md](data_collection.md).
+
+### Retargeting and simulation
+
+`mimicvla.retarget` turns the tracked `T_socket_usb_tip` segment into robot
+commands: it resamples to 20 Hz, removes isolated pose outliers, lightly
+smooths translation while keeping the final depth, and limits each Cartesian
+target step to 3 mm and 2°. The targets are placed at the simulated socket,
+and a short bridge from the reset pose to the first tracked pose is added
+(the "alignment" that evaluation also replays to reach each start state).
+Mink differential IK turns end-effector targets into joint targets, and the
+Panda's position actuators track them.
+
+| Item | Definition (`src/mimicvla/sim/env.py`) |
+|---|---|
+| Robot | MuJoCo Menagerie Panda; the USB plug (12 × 4.5 mm) is rigidly attached to the hand |
+| Action | 6 floats at 20 Hz: world-frame `dx, dy, dz` (m) and a rotation vector (rad) applied to the end-effector target |
+| State | 9 floats: seven joint angles (rad), two finger positions (m) |
+| Cameras | `camera1` fixed front, `camera2` on the wrist; 256 × 256 RGB |
+| Port | rectangular opening in a flush wall, 18 mm deep; 15 × 7 mm unless noted |
+| Success | plug-tip centre inside the opening and at least 12 mm deep |
+| Deep collision | more than 1 mm penetration into the port walls (wall contact itself is allowed) |
+
+### Selection
+
+1. **Review: 104 of 134 clips accepted.** Each clip was reviewed next to its
+   replay into an 18 × 10 mm port; 5 were rejected, 2 held, 23 never
+   reviewed.
+2. **Port sweep: 75 clips.** The 103 accepted clips available at the time
+   were replayed into 46 openings. In the 15 × 7 mm port, 75 reach 7 mm tip
+   depth during the human motion without a deep collision or joint-limit
+   fault.
+3. **Full replay: 72 clips.** Checked to the end of the replay, two have late
+   deep collisions and one ends shallower than 12 mm. The remaining 72 (36
+   single-marker, 36 two-marker) are the training set; `mimicvla
+   build-dataset` applies steps 2 and 3 in one pass.
+
+Port sweep (a clip counts if it passes 7 mm deep during the human motion with
+no deep collision or joint-limit fault up to that point):
+
+| Opening | Clips | Area | Clips over 100 N peak |
+|---|---:|---:|---:|
+| 18 × 10 mm (review port) | 103 | 180 mm² | 51 |
+| 16 × 8 mm | 89 | 128 mm² | 49 |
+| 15 × 8 mm | 85 | 120 mm² | 50 |
+| **15 × 7 mm (chosen)** | 75 | 105 mm² | 44 |
+| 14 × 7 mm | 70 | 98 mm² | 47 |
+| 17.4 × 5.1 mm | 70 | 89 mm² | 62 |
+| 13.4 × 5.9 mm (real port) | 44 | 79 mm² | 34 |
+
+17.4 × 5.1 mm is the smallest area with 70 clips, but it leaves 0.3 mm over
+the plug height and 62 of its clips exceed 100 N. 14 × 7 mm has no margin
+for later rejections. An earlier design with an entry funnel let more
+replays insert but pushed the plug hard against the funnel, so it was
+dropped.
+
+Clips over 100 N peak force were kept; 100 N was a triage screen, not a
+limit. Each episode's peak force is in `capture_manifest.json`.
+
+The 8 held-out clips (`mimicvla.dataset.splits`, seed 2026) are stratified
+by session: 4 of 36 single-marker, 3 of 32 two-marker, 1 of 4 first-mount.
+The split is keyed by clip name, so every derived dataset holds out the same
+demonstrations, mirrored copies included.
+
+### Dataset variants
+
+All are built from the same 72 clips by `scripts/reproduce_results.sh data`
+and keep only episodes that pass the same replay gate.
+
+| Dataset | Built with | Episodes | Frames | Change |
+|---|---|---:|---:|---|
+| `usb_15x7` (published as `mimicvla-panda-usb`) | `build-dataset` | 72 | 8,089 | raw tracked poses |
+| `usb_15x7_lowpass2hz` | `build-dataset --lowpass-hz 2` | 55 | 4,768 | zero-phase 2nd-order Butterworth at 2 Hz on tip position and orientation |
+| `usb_15x7_recovery` | `dataset.recovery --correction-gain 0.15` | 254 | 28,821 | 1 clean + 3 perturbed copies per training clip |
+| `usb_15x7_lowpass2hz_recovery` | same, from the low-pass set | 185 | – | the same on low-pass labels |
+| `usb_15x7_mirror` | `build-dataset --mirror` | 120 | 13,806 | 72 originals + 48 mirrored copies |
+
+**Low-pass.** 72% of the tracked tip's angular-velocity power is at or above
+5 Hz and 7% below 2 Hz, while deliberate hand motion lies below 2–3 Hz.
+Filtering roughly halves per-step rotation jitter and changes net motion by
+about 1 mm, but 17 clips then stall on the rim (0–1 mm deep, 5–12 mm off
+centre). This leaves 55 episodes, 6 of them held out.
+
+**Recovery.** Each training clip is re-executed four times: once clean and
+three times with a smooth Ornstein–Uhlenbeck offset (about 3 mm and 2° RMS)
+added to the executed command, fading to zero within 5 mm of the port. Each
+frame is labelled with the command that moves the target back towards the
+human trajectory, removing `--correction-gain` of the offset per step (1.0
+in version 1, 0.15 in version 2). Held-out clips are not used. 254 of 256
+copies pass the gate.
+
+**Mirror.** Each tracked tip trajectory is reflected across the port's
+vertical mid-plane (`mirror_socket_x` in `src/mimicvla/retarget.py`), then
+retargeted and rendered like an original (section 3).
 
 ## Videos
 
