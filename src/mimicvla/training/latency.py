@@ -39,7 +39,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--dataset-dir", type=Path,
-                        default=Path("outputs/datasets/usb_15x7_no_funnel_full_v2"))
+                        default=Path("data/mimicvla-panda-usb-15x7"))
     parser.add_argument("--steps", type=int, nargs="+", default=[1, 2, 3, 5, 10])
     parser.add_argument("--observations", type=int, default=20)
     parser.add_argument("--repeats", type=int, default=3)

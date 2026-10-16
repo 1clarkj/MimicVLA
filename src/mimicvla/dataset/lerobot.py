@@ -12,6 +12,25 @@ from ..sim.scene import SocketPose
 
 TASK = "Insert the USB stick into the USB port."
 REPO_ID = "mimicvla/usb_sim_two_cam"
+FEATURES = {
+    "observation.state": {"dtype": "float32", "shape": (9,), "names": [
+        *(f"joint{i}_rad" for i in range(1, 8)), "finger1_m", "finger2_m"]},
+    "action": {"dtype": "float32", "shape": (6,), "names": [
+        "dx_world_m", "dy_world_m", "dz_world_m",
+        "rx_world_rad", "ry_world_rad", "rz_world_rad"]},
+    "observation.images.camera1": {"dtype": "video", "shape": (256, 256, 3),
+                                   "names": ["height", "width", "channel"]},
+    "observation.images.camera2": {"dtype": "video", "shape": (256, 256, 3),
+                                   "names": ["height", "width", "channel"]},
+}
+CAMERA_SETUP = {
+    "observation.images.camera1": {"mujoco_camera": "front_rgb",
+                                   "world_position_m": [0.52, -0.28, 0.72],
+                                   "looks_at_socket_center": True, "vertical_fov_deg": 30},
+    "observation.images.camera2": {"mujoco_camera": "wrist_rgb",
+                                   "hand_position_m": [0, -0.045, 0.070],
+                                   "hand_target_m": [0, 0, 0.160], "vertical_fov_deg": 70},
+}
 
 
 def export_sim_dataset(output_dir: Path, episodes: int = 2, seed: int = 42) -> dict:
@@ -25,17 +44,7 @@ def export_sim_dataset(output_dir: Path, episodes: int = 2, seed: int = 42) -> d
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Choose an empty dataset directory: {output_dir}")
     rng = np.random.default_rng(seed)
-    features = {
-        "observation.state": {"dtype": "float32", "shape": (9,), "names": [
-            *(f"joint{i}_rad" for i in range(1, 8)), "finger1_m", "finger2_m"]},
-        "action": {"dtype": "float32", "shape": (6,), "names": [
-            "dx_world_m", "dy_world_m", "dz_world_m",
-            "rx_world_rad", "ry_world_rad", "rz_world_rad"]},
-        "observation.images.camera1": {"dtype": "video", "shape": (256, 256, 3),
-                                       "names": ["height", "width", "channel"]},
-        "observation.images.camera2": {"dtype": "video", "shape": (256, 256, 3),
-                                       "names": ["height", "width", "channel"]},
-    }
+    features = FEATURES
     dataset = LeRobotDataset.create(repo_id=REPO_ID, fps=20, features=features,
                                     root=output_dir, robot_type="franka_panda_usb",
                                     use_videos=True, video_backend="pyav")

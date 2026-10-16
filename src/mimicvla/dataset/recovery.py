@@ -22,15 +22,14 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from mimicvla.dataset.selection.accepted import CAMERA_SETUP, FEATURES
 from mimicvla.dataset.splits import HOLDOUT_CLIPS
-from mimicvla.dataset.lerobot import TASK
+from mimicvla.dataset.lerobot import CAMERA_SETUP, FEATURES, TASK
 from mimicvla.sim.env import PandaUSBEnv, SimConfig
 from mimicvla.sim.scene import SocketGeometry
 
 
 GEOMETRY = SocketGeometry(inner_half_x_m=.0075, inner_half_y_m=.0035)
-DEFAULT_SOURCE = Path("outputs/datasets/usb_15x7_no_funnel_full_v2")
+DEFAULT_SOURCE = Path("outputs/datasets/usb_15x7")
 MAX_STEP_M = .003
 MAX_STEP_RAD = np.deg2rad(2)
 
@@ -56,9 +55,7 @@ def noise_scale(depth_m: float, fade_start_m: float, fade_end_m: float) -> float
 
 def capture(job: dict) -> dict:
     episode, copy, config = job["episode"], job["copy"], job["config"]
-    replay_dir = Path(episode.get("replay_dir") or
-                      Path("outputs/recalibration/replays") / episode["batch"] /
-                      episode["clip"] / "wide_no_funnel")
+    replay_dir = Path(episode["replay_dir"])
     replay = json.loads((replay_dir / "retargeted_replay.json").read_text())
     first = episode["first_source_step"]
     rng = np.random.default_rng([config["seed"], episode["episode_index"], copy])
@@ -137,14 +134,14 @@ def main() -> None:
                              "low-pass dataset")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--dataset-id", default="usb_15x7_no_funnel_recovery_v1")
+    parser.add_argument("--dataset-id", default="usb_15x7_recovery")
     args = parser.parse_args()
     output_dir = Path("outputs/datasets") / args.dataset_id
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Choose an empty dataset directory: {output_dir}")
     source = json.loads((args.source_dataset / "capture_manifest.json").read_text())
     episodes = [episode for episode in source["episodes_manifest"]
-                if (episode["batch"], episode["clip"]) not in HOLDOUT_CLIPS]
+                if episode["clip"] not in HOLDOUT_CLIPS]
     config = {"seed": args.seed, "theta": args.theta,
               "correction_gain": args.correction_gain,
               "position_std_m": args.position_std_mm / 1000,
@@ -166,7 +163,7 @@ def main() -> None:
         with ProcessPoolExecutor(args.workers) as pool:
             for result in pool.map(capture, jobs, chunksize=1):
                 episode = result["episode"]
-                row = {"batch": episode["batch"], "clip": episode["clip"],
+                row = {"clip": episode["clip"],
                        "copy": result["copy"], "source_episode_index": episode["episode_index"],
                        "rms_offset_mm": result["rms_offset_mm"],
                        "max_offset_mm": result["max_offset_mm"],
@@ -200,7 +197,7 @@ def main() -> None:
                 "labels": "clean command from the controller target to the human target "
                           "for that step, capped at 3 mm and 2 deg per step",
                 "episodes": len(kept), "frames": sum(row["frames"] for row in kept),
-                "holdout_excluded": sorted(clip for _, clip in HOLDOUT_CLIPS),
+                "holdout_excluded": sorted(HOLDOUT_CLIPS),
                 "geometry": vars(GEOMETRY), "camera_setup": CAMERA_SETUP,
                 "source_dataset": str(args.source_dataset),
                 "gate": "no flagged deep collision or joint-limit failure, and finishes "

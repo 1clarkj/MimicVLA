@@ -2,8 +2,7 @@
 
 All numbers are closed-loop MuJoCo rollouts of fine-tuned SmolVLA policies,
 not demonstration replays. The story and the main conclusions are in
-[RESULTS.md](../RESULTS.md); this page has the full tables. The data pipeline
-is described in [pipeline.md](pipeline.md).
+[RESULTS.md](../RESULTS.md); this page has the full tables.
 
 ## Protocol
 
@@ -17,10 +16,10 @@ executes 10 of each 50-action chunk before re-planning (`--n-action-steps`).
 
 Start sets:
 
-- **Training starts (64)**: the clips of `usb_15x7_no_funnel_full_v2` used for
-  training.
+- **Training starts (64)**: the clips of the 72-episode training set
+  (`1clarkj/mimicvla-panda-usb-15x7`) used for training.
 - **Holdout (8)**: clips of the same dataset that no model trained on
-  (`mimicvla.dataset.splits`, seed 2026, stratified by recording batch).
+  (`mimicvla.dataset.splits`, seed 2026, stratified by recording session).
   Too few to rank models.
 - **Excluded starts (55)**: aligned start poses from recordings that never
   entered any training set (16 failed the 15 × 7 mm replay check, 7 were
@@ -53,7 +52,7 @@ state and the 6-D Cartesian action.
 Every policy ran 5 seeds from each start. Success is the mean over starts of
 each start's success rate, with a 95% bootstrap interval over start states.
 "Excluded starts" are 55 aligned start states from recordings that never
-entered any training set (`outputs/eval_sets/excluded_starts_v1`): 16 failed
+entered any training set (`eval_starts/excluded55` in the published dataset): 16 failed
 the 15 x 7 mm replay check, 7 were rejected or held in review, 3 unreviewed,
 13 never reviewed, and 16 others. Only their start pose is used, so their
 tracking quality after the start does not matter.
@@ -148,7 +147,7 @@ re-retargeted onto the Panda and re-rendered from the real cameras.
 Every mirrored episode is a physically valid robot demonstration with correct
 images, joint states and actions. It still comes from a human trajectory.
 
-- `mimicvla.dataset.variants.mirror` → `usb_15x7_no_funnel_mirror_v1`.
+- `mimicvla build-dataset --mirror` → `usb_15x7_mirror`.
   Of 72 mirrored clips, **48 pass the same 15 × 7 mm replay gate** as the
   originals. Almost all 24 rejects stall on the rim at about 0 mm depth, the
   same failure as low-pass breakage. A plausible reason is that the
@@ -386,7 +385,7 @@ look like lateral misses that end pushing on the port face.
 
 ### 5. Recovery data v1 failed, for an identifiable reason
 
-`mimicvla.dataset.variants.recovery` re-executes each training clip 3 extra
+`mimicvla.dataset.recovery` re-executes each training clip 3 extra
 times. Each copy adds an Ornstein–Uhlenbeck offset (about 3 mm and 2° RMS,
 fading to zero within 5 mm of the mouth) to the executed command, and labels
 each frame with the clean command back to the human target. Copy 0 reproduces
@@ -469,7 +468,7 @@ evaluations and summaries in order. Single steps:
 bash scripts/train.sh RUN STEPS [DATASET_ID] [BATCH]
 # evaluate one seed on a start set
 MUJOCO_GL=egl .venv/bin/python -m mimicvla.training.evaluate CKPT \
-  --dataset-dir outputs/eval_sets/excluded_starts_v1 --split all \
+  --dataset-dir data/mimicvla-panda-usb-15x7/eval_starts/excluded55 --split all \
   --n-action-steps 10 --no-video --seed 0 --output-dir OUT
 # tables, intervals and figures
 .venv/bin/python -m mimicvla.training.report

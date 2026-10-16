@@ -1,6 +1,6 @@
 """Upload the staged datasets and policy to the Hugging Face Hub, or download them.
 
-    python -m mimicvla.dataset.publish.hub upload --owner HF_USER [--raw] [--policy]
+    python -m mimicvla.dataset.publish.hub upload --owner 1clarkj [--raw] [--policy]
     mimicvla download [--raw] [--policy]
 
 Downloads go to data/: the LeRobot training set with its evaluation start
@@ -15,7 +15,7 @@ from pathlib import Path
 LEROBOT = "mimicvla-panda-usb-15x7"
 RAW = "mimicvla-human-usb-raw"
 POLICY = "mimicvla-smolvla-usb"
-DEFAULT_OWNER = "<HF_USER>"
+DEFAULT_OWNER = "1clarkj"
 STAGED = Path("outputs/hf_upload")
 
 

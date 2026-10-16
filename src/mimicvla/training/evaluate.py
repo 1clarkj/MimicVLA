@@ -61,14 +61,12 @@ def policy_action(policy, preprocessor, postprocessor, obs: dict, device: str) -
 def alignment_actions(episode: dict) -> list[list[float]]:
     """Actions that move the arm from reset to the clip's start pose.
 
-    Published start sets carry them inline; local ones read the saved replay.
+    Published start sets carry them inline; a dataset built locally with
+    `mimicvla build-dataset` reads them from its saved replays.
     """
     if "alignment_actions" in episode:
         return episode["alignment_actions"]
-    replay_dir = Path(episode.get("replay_dir") or
-                      Path("outputs/recalibration/replays") / episode["batch"] /
-                      episode["clip"] / "wide_no_funnel")
-    replay = json.loads((replay_dir / "retargeted_replay.json").read_text())
+    replay = json.loads((Path(episode["replay_dir"]) / "retargeted_replay.json").read_text())
     return [entry["action"] for entry in replay[:episode["first_source_step"]]]
 
 
@@ -149,7 +147,7 @@ def main() -> None:
                         help="e.g. outputs/train/RUN/checkpoints/last/pretrained_model")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--dataset-dir", type=Path,
-                        default=Path("outputs/datasets/usb_15x7_no_funnel_full_v2"),
+                        default=Path("data/mimicvla-panda-usb-15x7"),
                         help="dataset whose episodes supply the start states")
     parser.add_argument("--split", choices=["holdout", "train", "all"], default="holdout")
     parser.add_argument("--episodes", type=int, nargs="*",

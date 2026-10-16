@@ -44,7 +44,7 @@ from mimicvla.dataset.lerobot import TASK
 from mimicvla.sim.env import PandaUSBEnv, SimConfig, insertion_success_from_metrics
 
 
-DATASET = Path("outputs/datasets/usb_15x7_no_funnel_full_v2")
+DATASET = Path("data/mimicvla-panda-usb-15x7")
 
 
 # ---------------------------------------------------------------- environment

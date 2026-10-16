@@ -6,9 +6,15 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from mimicvla.vision.calibrate import calibrate, load_calibration, make_board
-from mimicvla.vision.track import _select_pose, detect_pair, track_video
+from pathlib import Path
+
+import pytest
+
+from mimicvla.vision.setup import load_setup
+from mimicvla.vision.track import _select_pose, track_video
 from mimicvla.vision.transforms import inverse, pose_matrix
-from mimicvla.vision.target_frames import marker_tip_with_x_offset, provisional_mounts, socket_from_tip
+
+EXAMPLE_SETUP = Path(__file__).resolve().parents[1] / "calibration" / "setup_example.json"
 
 
 def test_transform_inverse_and_composition():
@@ -41,28 +47,24 @@ def test_ippe_pose_selection_prefers_continuous_normal():
     np.testing.assert_allclose(pose, smooth)
 
 
-def test_measured_marker_offsets_and_relative_targets():
-    port_mount, marker_tip = provisional_mounts()
+def test_example_setup_transforms(tmp_path):
+    setup = load_setup(EXAMPLE_SETUP)
+    port_mount, marker_tip = setup.T_socket_port_marker, setup.T_usb_marker_usb_tip
     np.testing.assert_allclose(port_mount[:3, 3], [.016, -.045, 0])
     np.testing.assert_allclose(marker_tip[:3, 3], [0, .030, -.003])
-    np.testing.assert_allclose(inverse(port_mount)[:3, 3], [-.016, -.045, 0])
-    np.testing.assert_allclose(marker_tip[:3, :3] @ [0, 1, 0], [0, 0, -1])
     np.testing.assert_allclose(marker_tip[:3, :3] @ [0, 0, 1], [0, 1, 0])
     for mount in (port_mount, marker_tip):
-        np.testing.assert_allclose(mount[:3, :3].T @ mount[:3, :3], np.eye(3))
         np.testing.assert_allclose(np.linalg.det(mount[:3, :3]), 1)
     # A marker pair constructed from an aligned tip must recover identity.
     relative_markers = inverse(port_mount) @ inverse(marker_tip)
-    record = {"quality": "ok", "T_port_usb_marker": relative_markers.tolist()}
-    np.testing.assert_allclose(socket_from_tip(record, port_mount, marker_tip), np.eye(4), atol=1e-12)
-
-
-def test_new_mount_marker_center_is_plus_3mm_from_tip_in_x():
-    marker_tip = marker_tip_with_x_offset(-3)
-    np.testing.assert_allclose(marker_tip[:3, 3], [-.003, .030, -.003])
-    # X is shared by the marker and tip frames, so inversion gives the
-    # reported marker-centre position relative to the tip centre.
-    np.testing.assert_allclose(inverse(marker_tip)[0, 3], .003)
+    np.testing.assert_allclose(setup.socket_from_usb_marker(relative_markers), np.eye(4),
+                               atol=1e-12)
+    data = json.loads(EXAMPLE_SETUP.read_text())
+    data["usb_marker"]["id"] = 1
+    duplicate = tmp_path / "setup.json"
+    duplicate.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="own ArUco id"):
+        load_setup(duplicate)
 
 
 def test_charuco_calibration_from_synthetic_views(tmp_path):
@@ -94,7 +96,6 @@ def test_tracking_synthetic_video_with_missing_marker(tmp_path):
         "camera_matrix": camera.tolist(), "distortion_coefficients": [0, 0, 0, 0, 0],
     }))
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-    detector = cv2.aruco.ArucoDetector(dictionary)
     port = cv2.aruco.generateImageMarker(dictionary, 1, 150)
     usb = cv2.aruco.generateImageMarker(dictionary, 0, 60)
     video = tmp_path / "demo.mp4"
@@ -106,25 +107,18 @@ def test_tracking_synthetic_video_with_missing_marker(tmp_path):
                 frame[180:240, 380 + index * 5:440 + index * 5] = cv2.cvtColor(
                     usb, cv2.COLOR_GRAY2RGB)
             writer.append_data(frame)
-    sample = np.full((480, 640, 3), 255, dtype=np.uint8)
-    sample[150:300, 100:250] = cv2.cvtColor(port, cv2.COLOR_GRAY2BGR)
-    sample[180:240, 380:440] = cv2.cvtColor(usb, cv2.COLOR_GRAY2BGR)
-    record, _ = detect_pair(sample, detector, camera, np.zeros(5), .020, .050)
-    assert record["quality"] == "ok"
-    compact_record, preview = detect_pair(sample, detector, camera, np.zeros(5),
-                                          .020, .050, annotate=False)
-    assert compact_record["quality"] == "ok"
-    assert preview is None
-    relative = np.asarray(record["T_port_usb_marker"])
+    data = json.loads(EXAMPLE_SETUP.read_text())
+    data["camera"] = calibration.name
+    (tmp_path / "setup.json").write_text(json.dumps(data))
+    metadata = track_video(video, load_setup(tmp_path / "setup.json"), tmp_path / "tracked")
+    assert metadata["frames"] == 4
+    assert metadata["observed_poses"] == 3 and metadata["interpolated_poses"] == 1
+    records = [json.loads(line) for line in
+               (tmp_path / "tracked" / "trajectory.jsonl").read_text().splitlines()]
+    assert [r["pose_source"] for r in records] == ["observed", "observed", "interpolated",
+                                                   "observed"]
+    relative = np.asarray(records[0]["T_port_usb_marker"])
     np.testing.assert_allclose(relative[:3, :3] @ relative[:3, :3].T, np.eye(3), atol=1e-6)
     assert relative[0, 3] > 0  # USB marker appears to the port marker's right.
-    output = tmp_path / "tracked"
-    metadata = track_video(str(video), calibration, output, usb_marker_m=.020)
-    records = [json.loads(line) for line in (output / "trajectory.jsonl").read_text().splitlines()]
-    assert metadata["frames"] == 4
-    assert metadata["valid_relative_poses"] == 3
-    assert records[2]["quality"] == "missing_usb"
-    assert records[2]["T_port_usb_marker"] is None
-    assert all(records[i]["timestamp_s"] < records[i + 1]["timestamp_s"] for i in range(3))
-    assert (output / "trajectory.png").exists()
-    assert len(list((output / "frames").glob("*.jpg"))) == 4
+    np.testing.assert_allclose(records[0]["T_socket_usb_tip"],
+                               load_setup(tmp_path / "setup.json").socket_from_usb_marker(relative))

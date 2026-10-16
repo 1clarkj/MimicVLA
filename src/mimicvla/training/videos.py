@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import tempfile
 from pathlib import Path
 
 import cv2
@@ -38,19 +39,19 @@ import imageio.v2 as imageio
 import mujoco
 import numpy as np
 
-from mimicvla.training.evaluate import GEOMETRY, SUCCESS_DEPTH_M, load_policy, policy_action
+from mimicvla.training.evaluate import (GEOMETRY, SUCCESS_DEPTH_M, alignment_actions,
+                                       load_policy, policy_action)
 from mimicvla.sim.env import PandaUSBEnv, SimConfig
 from mimicvla.vision.calibrate import load_calibration
-from mimicvla.vision.target_frames import provisional_mounts
+from mimicvla.retarget import replay_recording
+from mimicvla.vision.setup import load_setup
 from mimicvla.vision.transforms import inverse
 
 
-SETS = {"all72": Path("outputs/datasets/usb_15x7_no_funnel_full_v2"),
-        "excluded55": Path("outputs/eval_sets/excluded_starts_v1")}
-VIDEO_DIRS = {"single_20mm": ("video_data/20mm_marker", "20mm_"),
-              "dual_original": ("video_data/double_marker_original_mount", ""),
-              "dual_minus3": ("video_data/double_marker", "")}
-CALIBRATION = Path("outputs/iphone_calibration.json")
+DATA = Path("data")
+SETS = {"all72": DATA / "mimicvla-panda-usb-15x7",
+        "excluded55": DATA / "mimicvla-panda-usb-15x7/eval_starts/excluded55"}
+RAW = DATA / "mimicvla-human-usb-raw"
 FPS = 20
 SIM_PX = 480
 HUMAN_W = 854
@@ -186,18 +187,38 @@ def draw(renderer: SimDrawer, env: PandaUSBEnv) -> np.ndarray:
     return renderer()
 
 
-def human_panel(episode: dict, replay_dir: Path,
-                size: tuple[int, int] = (HUMAN_W, SIM_PX)) -> list[np.ndarray]:
-    summary = json.loads((replay_dir / "summary.json").read_text())
-    folder, prefix = VIDEO_DIRS[episode["batch"]]
-    video = Path(folder) / f"{episode['clip'].removeprefix(prefix)}.mov"
-    records = [json.loads(line) for line in Path(summary["source"]).read_text().splitlines()]
-    first, last = summary["source_frames"]
-    calibration = load_calibration(CALIBRATION)
+def clip_source(clip: str) -> dict:
+    """The clip's row in the raw dataset's metadata (video, setup, replayed frames)."""
+    for line in (RAW / "videos/metadata.jsonl").read_text().splitlines():
+        row = json.loads(line)
+        if row["clip_id"] == clip:
+            return row
+    raise ValueError(f"{clip} is not in {RAW}")
+
+
+def human_replay(clip: str, folder: Path) -> tuple[list[dict], int]:
+    """Replay the clip's tracked segment; returns the steps and the alignment length."""
+    source = clip_source(clip)
+    summary = replay_recording(RAW / "tracking" / f"{clip}.jsonl", folder,
+                               start_frame=source["replay_start_frame"],
+                               end_frame=source["replay_end_frame"], complete_segment=True,
+                               sim_config=SimConfig(max_steps=1000, geometry=GEOMETRY),
+                               write_video=False)
+    return (json.loads((folder / "retargeted_replay.json").read_text()),
+            summary["initial_alignment_steps"])
+
+
+def human_panel(clip: str, size: tuple[int, int] = (HUMAN_W, SIM_PX)) -> list[np.ndarray]:
+    source = clip_source(clip)
+    video = RAW / "videos" / source["file_name"].removeprefix("videos/")
+    records = [json.loads(line) for line in
+               (RAW / "tracking" / f"{clip}.jsonl").read_text().splitlines()]
+    first, last = source["replay_start_frame"], source["replay_end_frame"]
+    setup = load_setup(RAW / source["setup"])
+    calibration = load_calibration(setup.camera)
     camera = np.asarray(calibration["camera_matrix"], dtype=float)
     distortion = np.asarray(calibration["distortion_coefficients"], dtype=float)
-    port_mount, _ = provisional_mounts()
-    marker_tip = np.asarray(summary["T_marker0_usb_tip"])
+    port_mount = setup.T_socket_port_marker
     capture = cv2.VideoCapture(str(video))
     fps = capture.get(cv2.CAP_PROP_FPS) or 24
     capture.set(cv2.CAP_PROP_POS_FRAMES, first)
@@ -214,13 +235,13 @@ def human_panel(episode: dict, replay_dir: Path,
             rvec, _ = cv2.Rodrigues(pose[:3, :3])
             cv2.drawFrameAxes(frame, camera, distortion, rvec, pose[:3, 3], .02,
                               max(2, int(3 * scale)))
-        port = markers.get("port", markers.get("1"))
-        if port is not None and record.get("T_port_usb_marker") is not None:
-            camera_port = np.asarray(port["T_camera_marker"])
-            camera_usb = camera_port @ np.asarray(record["T_port_usb_marker"])
+        port = markers.get(str(setup.port_marker.id))
+        if port is not None and record.get("T_socket_usb_tip") is not None:
+            camera_socket = np.asarray(port["T_camera_marker"]) @ inverse(port_mount)
             for transform, colour, text in [
-                    (camera_port @ inverse(port_mount), (0, 255, 0), "socket"),
-                    (camera_usb @ marker_tip, (255, 0, 255), "USB tip")]:
+                    (camera_socket, (0, 255, 0), "socket"),
+                    (camera_socket @ np.asarray(record["T_socket_usb_tip"]),
+                     (255, 0, 255), "USB tip")]:
                 rvec, _ = cv2.Rodrigues(transform[:3, :3])
                 pixels, _ = cv2.projectPoints(np.zeros((1, 3)), rvec, transform[:3, 3],
                                               camera, distortion)
@@ -248,7 +269,7 @@ def human_panel(episode: dict, replay_dir: Path,
     # Resample source frames (24-30 fps) to the 20 Hz output clock.
     times = np.arange(int(len(raw) / fps * FPS))
     frames = [raw[min(len(raw) - 1, int(round(t * fps / FPS)))] for t in times]
-    title = f"Human demo, iPhone + ArUco | {episode['clip']}"
+    title = f"Human demo, iPhone + ArUco | {clip}"
     return [label(f, [(title, WHITE), (f"source frames {first}-{last}", WHITE)])
             for f in frames]
 
@@ -349,11 +370,11 @@ def write_gif(path: Path, frames: list[np.ndarray], duration_ms: float) -> None:
                    loop=0, optimize=True, disposal=1)
 
 
-def start_env(replay: list[dict], first: int) -> PandaUSBEnv:
+def start_env(alignment: list) -> PandaUSBEnv:
     env = PandaUSBEnv(SimConfig(max_steps=10_000, geometry=GEOMETRY,
                                 insertion_depth_m=SUCCESS_DEPTH_M))
-    for entry in replay[:first]:
-        env.step(np.asarray(entry["action"], dtype=float))
+    for action in alignment:
+        env.step(np.asarray(action, dtype=float))
     return env
 
 
@@ -382,14 +403,13 @@ def main() -> None:
     set_name, index = args.start.split(":")
     manifest = json.loads((SETS[set_name] / "capture_manifest.json").read_text())
     episode = manifest["episodes_manifest"][int(index)]
-    replay_dir = Path(episode.get("replay_dir") or Path("outputs/recalibration/replays") /
-                      episode["batch"] / episode["clip"] / "wide_no_funnel")
-    replay = json.loads((replay_dir / "retargeted_replay.json").read_text())
-    first = episode["first_source_step"]
+    with tempfile.TemporaryDirectory() as folder:
+        replay, first = human_replay(episode["clip"], Path(folder))
+    if first != episode["first_source_step"]:
+        raise ValueError("The recomputed replay does not start where the evaluation starts")
 
-    panels = [human_panel(episode, replay_dir,
-                          sim_size if BAND else (HUMAN_W, sim_size[1]))]
-    env = start_env(replay, first)
+    panels = [human_panel(episode["clip"], sim_size if BAND else (HUMAN_W, sim_size[1]))]
+    env = start_env([entry["action"] for entry in replay[:first]])
     renderer = sim_renderer(env, args.sim_view)
     panels.append(replay_panel(env, renderer, replay, first))
     renderer.close(); env.close()
@@ -397,7 +417,8 @@ def main() -> None:
         name, checkpoint, *eval_name = spec.split("=")
         record = (seed_record(eval_name[0], set_name, episode["episode_index"])
                   if eval_name else "")
-        env = start_env(replay, first)
+        # The evaluated start state exactly (the recomputed replay can differ by ~1e-7).
+        env = start_env(alignment_actions(episode))
         renderer = sim_renderer(env, args.sim_view)
         panels.append(policy_panel(env, renderer, name, Path(checkpoint), args.seed,
                                    args.max_steps, args.device, record))

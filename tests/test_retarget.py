@@ -6,18 +6,18 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from mimicvla.retarget import _densify, _matrix, lowpass_poses, resample_segment, valid_segment
-from mimicvla.vision.target_frames import provisional_mounts
-from mimicvla.vision.transforms import inverse
+
+
+def tip_record(index: int, timestamp: float, socket_tip: np.ndarray) -> dict:
+    return {"frame_index": index, "timestamp_s": timestamp, "quality": "ok",
+            "T_socket_usb_tip": socket_tip.tolist()}
 
 
 def test_retarget_resamples_and_preserves_final_insertion():
-    port_mount, marker_tip = provisional_mounts()
     records = []
     for index, depth in enumerate([-.04, -.025, -.010, .008]):
         socket_tip = _matrix(np.array([0., 0., depth]), np.eye(3))
-        port_usb = inverse(port_mount) @ socket_tip @ inverse(marker_tip)
-        records.append({"frame_index": index, "timestamp_s": index * .1,
-                        "quality": "ok", "T_port_usb_marker": port_usb.tolist()})
+        records.append(tip_record(index, index * .1, socket_tip))
     times, targets, raw = resample_segment(valid_segment(records))
     assert len(times) == 7
     assert len(raw) == 4
@@ -41,46 +41,23 @@ def test_retarget_rejects_marker_gap():
 
 
 def test_resampling_does_not_exceed_final_timestamp():
-    port_mount, marker_tip = provisional_mounts()
     start = 1.0833333333333335
     end = 3.8333333333333335
     records = []
     for index, timestamp in enumerate(np.linspace(start, end, 5)):
         socket_tip = _matrix(np.array([0., 0., -.02 + index * .005]), np.eye(3))
-        port_usb = inverse(port_mount) @ socket_tip @ inverse(marker_tip)
-        records.append({"frame_index": index, "timestamp_s": float(timestamp),
-                        "quality": "ok", "T_port_usb_marker": port_usb.tolist()})
+        records.append(tip_record(index, float(timestamp), socket_tip))
     times, _, _ = resample_segment(records)
     assert times[0] == start
     assert times[-1] == end
     assert np.all(times <= end)
 
 
-def test_new_mount_x_offset_changes_tip_targets_without_changing_marker_track():
-    port_mount, marker_tip = provisional_mounts()
-    records = []
-    for index, depth in enumerate([-.04, -.025, -.010, .008]):
-        socket_tip = _matrix(np.array([0., 0., depth]), np.eye(3))
-        port_usb = inverse(port_mount) @ socket_tip @ inverse(marker_tip)
-        records.append({"frame_index": index, "timestamp_s": index * .1,
-                        "quality": "ok", "T_port_usb_marker": port_usb.tolist()})
-    _, baseline, _ = resample_segment(records)
-    adjusted_mount = marker_tip.copy()
-    adjusted_mount[0, 3] = .003
-    _, adjusted, raw = resample_segment(records, marker_tip=adjusted_mount)
-    np.testing.assert_allclose(np.asarray(raw[-1]["T_socket_usb_tip"])[0, 3], .003)
-    np.testing.assert_allclose(adjusted[-1][:3, 3] - baseline[-1][:3, 3],
-                               [.003, 0., 0.], atol=1e-12)
-
-
 def test_resampling_rejects_implausible_marker_jump():
-    port_mount, marker_tip = provisional_mounts()
     records = []
     for index, x in enumerate([0., 0., .1, .1]):
         socket_tip = _matrix(np.array([x, 0., -.02]), np.eye(3))
-        port_usb = inverse(port_mount) @ socket_tip @ inverse(marker_tip)
-        records.append({"frame_index": index, "timestamp_s": index * .05,
-                        "quality": "ok", "T_port_usb_marker": port_usb.tolist()})
+        records.append(tip_record(index, index * .05, socket_tip))
     with pytest.raises(ValueError, match="implausible"):
         resample_segment(records)
 
@@ -102,14 +79,11 @@ def test_lowpass_removes_tracking_jitter_but_keeps_slow_motion():
 
 
 def test_mirror_reflects_lateral_offset_and_keeps_rotations_proper():
-    port_mount, marker_tip = provisional_mounts()
     tilt = Rotation.from_rotvec([.05, .1, .2]).as_matrix()
     records = []
     for index, depth in enumerate([-.04, -.025, -.010, .008]):
         socket_tip = _matrix(np.array([.004, -.002, depth]), tilt)
-        port_usb = inverse(port_mount) @ socket_tip @ inverse(marker_tip)
-        records.append({"frame_index": index, "timestamp_s": index * .1,
-                        "quality": "ok", "T_port_usb_marker": port_usb.tolist()})
+        records.append(tip_record(index, index * .1, socket_tip))
     _, baseline, _ = resample_segment(records)
     _, mirrored, _ = resample_segment(records, mirror_socket_x=True)
     reflect = np.diag([-1., 1., 1., 1.])

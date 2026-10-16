@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Reproduce the results in RESULTS.md and documentation/experiments.md, in order.
 # Each stage can be run on its own:  bash scripts/reproduce_results.sh STAGE
-#   data      label variants of the 72-episode dataset and the excluded-start set
+#   data      the training-set variants, rebuilt from the published recordings
 #   train     every SmolVLA run (developed on one 16 GB RTX 5060 Ti)
 #   evaluate  5 seeds x {72 dataset starts, 55 excluded starts} per policy
 #   dsrl      DSRL noise-steering runs on the frozen low-pass policy
 #   latency   chunk latency vs denoising steps
 #   summary   tables, bootstrap intervals and figures
-# The 72-episode dataset itself comes from the recording pipeline
-# (scripts/process_recordings.sh, described in documentation/pipeline.md).
+# Needs `mimicvla download --raw`. The 72-episode training set and the 55
+# excluded start states are the published data/mimicvla-panda-usb-15x7.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD/src" MUJOCO_GL=egl
@@ -16,31 +16,41 @@ export MENAGERIE_CACHE_DIR="$PWD/outputs/menagerie_cache"
 PY=.venv/bin/python
 TRAIN=outputs/train
 EVAL=outputs/policy_eval_multiseed
-ALL72=outputs/datasets/usb_15x7_no_funnel_full_v2
-EXC55=outputs/eval_sets/excluded_starts_v1
+RAW=data/mimicvla-human-usb-raw
+ALL72=data/mimicvla-panda-usb-15x7
+EXC55=$ALL72/eval_starts/excluded55
+D=outputs/datasets
 LOWPASS=$TRAIN/lowpass_bs32_20k/checkpoints/020000/pretrained_model
 
+build() {  # name [build-dataset options]
+    [[ -d $D/$1 ]] || $PY -m mimicvla.cli build-dataset $RAW/tracking --clips $D/clips72.txt \
+        --no-videos --output $D/$1 "${@:2}"
+}
+
 data() {
-    $PY -m mimicvla.dataset.variants.lowpass --lowpass-hz 2           # usb_15x7_no_funnel_lowpass2hz_v1
-    $PY -m mimicvla.dataset.variants.recovery --copies 4 --correction-gain 0.15 \
-        --dataset-id usb_15x7_no_funnel_recovery_v2
-    $PY -m mimicvla.dataset.variants.recovery --copies 4 --correction-gain 0.15 \
-        --source-dataset outputs/datasets/usb_15x7_no_funnel_lowpass2hz_v1 \
-        --dataset-id usb_15x7_no_funnel_lowpass_recovery_v1
-    $PY -m mimicvla.dataset.variants.mirror                           # usb_15x7_no_funnel_mirror_v1
-    $PY -m mimicvla.dataset.excluded_starts
+    mkdir -p $D
+    $PY -c "import json; print(''.join(e['clip'] + '\\n' for e in json.load(open('$ALL72/capture_manifest.json'))['episodes_manifest']), end='')" > $D/clips72.txt
+    # The same 72 episodes and actions as the published set (joint states agree
+    # to 0.003 rad); the recovery variants need its saved replays.
+    build usb_15x7
+    build usb_15x7_lowpass2hz --lowpass-hz 2
+    build usb_15x7_mirror --mirror
+    $PY -m mimicvla.dataset.recovery --copies 4 --correction-gain 0.15 \
+        --source-dataset $D/usb_15x7 --dataset-id usb_15x7_recovery
+    $PY -m mimicvla.dataset.recovery --copies 4 --correction-gain 0.15 \
+        --source-dataset $D/usb_15x7_lowpass2hz --dataset-id usb_15x7_lowpass2hz_recovery
 }
 
 train() {
     local t=scripts/train.sh
     bash $t raw_bs32_20k 20000                                   # raw_10k and raw_20k checkpoints
-    bash $t lowpass_bs32_20k 20000 usb_15x7_no_funnel_lowpass2hz_v1
-    bash $t recovery_v2_bs32_10k 10000 usb_15x7_no_funnel_recovery_v2
-    bash $t lowpass_recovery_bs32_20k 20000 usb_15x7_no_funnel_lowpass_recovery_v1
+    bash $t lowpass_bs32_20k 20000 usb_15x7_lowpass2hz
+    bash $t recovery_v2_bs32_10k 10000 usb_15x7_recovery
+    bash $t lowpass_recovery_bs32_20k 20000 usb_15x7_lowpass2hz_recovery
     # data scaling and mirroring: 10k steps on the 20k learning-rate schedule
     TRAIN_SUBSET=train16 DECAY_STEPS=20000 bash $t raw_n16_bs32_10k 10000
     TRAIN_SUBSET=train32 DECAY_STEPS=20000 bash $t raw_n32_bs32_10k 10000
-    DECAY_STEPS=20000 bash $t raw_mirror_bs32_10k 10000 usb_15x7_no_funnel_mirror_v1
+    DECAY_STEPS=20000 bash $t raw_mirror_bs32_10k 10000 usb_15x7_mirror
 }
 
 evaluate_policy() {  # name checkpoint [extra args]

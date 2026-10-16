@@ -7,6 +7,7 @@ import cv2
 import imageio.v2 as imageio
 import numpy as np
 
+from .setup import load_setup
 from .track import track_video
 
 
@@ -32,5 +33,9 @@ def run_smoke(output_dir: Path) -> dict:
                 left = 370 + 2 * index
                 frame[180:240, left:left + 60] = cv2.cvtColor(usb, cv2.COLOR_GRAY2RGB)
             writer.append_data(frame)
-    return track_video(str(video_path), calibration_path, output_dir / "tracked",
-                       usb_marker_m=0.020)
+    setup_path = output_dir / "setup.json"
+    example = Path(__file__).resolve().parents[3] / "calibration" / "setup_example.json"
+    setup = json.loads(example.read_text())
+    setup["camera"] = calibration_path.name
+    setup_path.write_text(json.dumps(setup, indent=2) + "\n")
+    return track_video(video_path, load_setup(setup_path), output_dir / "tracked")

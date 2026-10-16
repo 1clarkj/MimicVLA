@@ -14,7 +14,6 @@ from scipy.spatial.transform import Rotation, Slerp
 from .sim.controller import pose_from_site
 from .sim.env import PandaUSBEnv, SimConfig
 from .sim.scene import USB_TIP_Z_IN_HAND_M
-from .vision.target_frames import provisional_mounts, socket_from_tip
 
 
 def _matrix(position: np.ndarray, rotation: np.ndarray) -> np.ndarray:
@@ -91,7 +90,6 @@ def lowpass_poses(positions: np.ndarray, rotations: Rotation, cutoff_hz: float,
 
 
 def resample_segment(segment: list[dict], control_hz: int = 20,
-                     marker_tip: np.ndarray | None = None,
                      lowpass_hz: float | None = None,
                      mirror_socket_x: bool = False) -> tuple[np.ndarray, list[np.ndarray], list[dict]]:
     """Sample metric socket-relative tip poses at controller rate.
@@ -105,14 +103,8 @@ def resample_segment(segment: list[dict], control_hz: int = 20,
     rectangular opening is symmetric about that plane, so the reflected
     motion is an equally valid insertion approached from the other side.
     """
-    port_mount, default_marker_tip = provisional_mounts()
-    if marker_tip is None:
-        marker_tip = default_marker_tip
-    raw = []
-    for record in segment:
-        pose = socket_from_tip(record, port_mount, marker_tip)
-        raw.append({"frame_index": record["frame_index"], "timestamp_s": record["timestamp_s"],
-                    "T_socket_usb_tip": _pose_json(pose)})
+    raw = [{"frame_index": record["frame_index"], "timestamp_s": record["timestamp_s"],
+            "T_socket_usb_tip": record["T_socket_usb_tip"]} for record in segment]
     times = np.asarray([row["timestamp_s"] for row in raw], dtype=float)
     if len(times) < 3 or not np.all(np.diff(times) > 0):
         raise ValueError("Need at least three frames with increasing timestamps")
@@ -173,15 +165,13 @@ def _densify(targets: list[np.ndarray], start: np.ndarray,
 def replay_recording(trajectory: Path, output_dir: Path, *,
                      start_frame: int | None = None, end_frame: int | None = None,
                      complete_segment: bool = False,
-                     marker_tip: np.ndarray | None = None,
                      sim_config: SimConfig | None = None,
                      write_video: bool = True,
                      lowpass_hz: float | None = None,
                      mirror_socket_x: bool = False) -> dict:
     records = [json.loads(line) for line in trajectory.read_text().splitlines()]
     segment = valid_segment(records, start_frame, end_frame)
-    times, relative_targets, raw = resample_segment(segment, marker_tip=marker_tip,
-                                                    lowpass_hz=lowpass_hz,
+    times, relative_targets, raw = resample_segment(segment, lowpass_hz=lowpass_hz,
                                                     mirror_socket_x=mirror_socket_x)
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "original_socket_relative.json").write_text(json.dumps(raw, indent=2) + "\n")
@@ -237,8 +227,6 @@ def replay_recording(trajectory: Path, output_dir: Path, *,
                    "mirror_socket_x": mirror_socket_x,
                    "socket_geometry": asdict(env.config.geometry),
                    "T_world_socket": world_socket.tolist(),
-                   "T_marker0_usb_tip": (marker_tip if marker_tip is not None
-                                         else provisional_mounts()[1]).tolist(),
                    "resampled_targets": len(times), "planned_controller_steps": len(commands),
                    "initial_alignment_steps": initial_alignment_steps,
                    "source_motion_steps": len(source_rows),

@@ -68,11 +68,25 @@ per side, against 1–3 mm of tracking error. Replayed into that port, only 44
 of the 103 accepted clips insert. They fail because the measurement is
 off, not because the human missed.
 
-I widened the simulated port rather than discard most of the data. A sweep
-over 46 opening sizes ([details](documentation/pipeline.md#port-size)) picked
-**15 × 7 mm without a funnel**: the smallest balanced size that keeps at
-least 70 clips. 72 clips replay completely and cleanly into it. This is the
-training set. **All results below use this widened port.** It is easier than
+I widened the simulated port rather than discard most of the data. I
+replayed all 103 accepted clips into 46 rectangular openings and counted the
+clips whose plug tip passes 7 mm deep without a deep collision or joint-limit
+fault:
+
+| Opening (width × height) | Clips | Clips over 100 N peak force |
+|---|---:|---:|
+| 18 × 10 mm (used for review) | 103 | 51 |
+| 16 × 8 mm | 89 | 49 |
+| **15 × 7 mm (chosen)** | **75** | 44 |
+| 14 × 7 mm | 70 | 47 |
+| 17.4 × 5.1 mm | 70 | 62 |
+| 13.4 × 5.9 mm (real port) | 44 | 34 |
+
+The target was at least 70 clips. 17.4 × 5.1 mm is the smallest area that
+reaches it, but leaves 0.3 mm over the plug height and most of its replays
+exceed 100 N; 14 × 7 mm has no margin. **15 × 7 mm without a funnel** keeps
+75. 72 of them replay completely and cleanly (the plug ends at least 12 mm
+deep). This is the training set. **All results below use this widened port.** It is easier than
 the real task, and I report it as a limitation, not a detail.
 
 Success means the plug-tip centre is inside the opening and at least 12 mm

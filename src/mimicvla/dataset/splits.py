@@ -1,7 +1,7 @@
-"""Fixed held-out source clips for 15 x 7 mm policy evaluation.
+"""Fixed held-out clips of the published recordings for policy evaluation.
 
-Drawn once (numpy seed 2026), stratified by recording batch: 4 of 36
-single_20mm, 3 of 32 dual_original, 1 of 4 dual_minus3. Keyed by clip so
+Drawn once (numpy seed 2026), stratified by recording session: 4 of 36
+single-marker clips, 3 of 32 and 1 of 4 two-marker clips. Keyed by clip so
 every dataset built from these recordings holds out the same demonstrations.
 
     python -m mimicvla.dataset.splits DATASET_DIR [train|holdout|trainN]
@@ -20,24 +20,22 @@ from pathlib import Path
 
 
 HOLDOUT_CLIPS = frozenset({
-    ("single_20mm", "20mm_10102026_161008"),
-    ("single_20mm", "20mm_10102026_194743"),
-    ("single_20mm", "20mm_10102026_195321"),
-    ("single_20mm", "20mm_10102026_195559"),
-    ("dual_original", "10112026_222734"),
-    ("dual_original", "10112026_223000"),
-    ("dual_original", "10112026_223447"),
-    ("dual_minus3", "10112026_182703"),
+    "20mm_10102026_161008", "20mm_10102026_194743", "20mm_10102026_195321",
+    "20mm_10102026_195559", "10112026_222734", "10112026_223000", "10112026_223447",
+    "10112026_182703",
 })
+
+
+def _held_out(clip: str) -> bool:
+    """Mirrored copies (``<clip>_mirror``) are held out with their source clip."""
+    return clip.removesuffix("_mirror") in HOLDOUT_CLIPS
 
 
 def split_indices(dataset_dir: Path) -> dict[str, list[int]]:
     manifest = json.loads((dataset_dir / "capture_manifest.json").read_text())
     episodes = manifest["episodes_manifest"]
-    holdout = [episode["episode_index"] for episode in episodes
-               if (episode["batch"], episode["clip"]) in HOLDOUT_CLIPS]
-    train = [episode["episode_index"] for episode in episodes
-             if (episode["batch"], episode["clip"]) not in HOLDOUT_CLIPS]
+    holdout = [episode["episode_index"] for episode in episodes if _held_out(episode["clip"])]
+    train = [episode["episode_index"] for episode in episodes if not _held_out(episode["clip"])]
     return {"train": train, "holdout": holdout}
 
 

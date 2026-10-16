@@ -27,7 +27,7 @@ from mimicvla.dataset.splits import split_indices, train_subset
 
 
 ROOT = Path("outputs/policy_eval_multiseed")
-DATASET = Path("outputs/datasets/usb_15x7_no_funnel_full_v2")
+DATASET = Path("data/mimicvla-panda-usb-15x7")
 FIGURES = Path("documentation/figures")
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
@@ -91,11 +91,12 @@ def scaling(holdout: set[int]) -> list[dict]:
               (16, "raw_n16_10k", train_subset(DATASET, 16)),
               (32, "raw_n32_10k", train_subset(DATASET, 32)),
               (64, "raw_10k", split_indices(DATASET)["train"])]
-    mirror_manifest = Path("outputs/datasets/usb_15x7_no_funnel_mirror_v1/capture_manifest.json")
+    mirror_manifest = Path("outputs/datasets/usb_15x7_mirror/capture_manifest.json")
     mirrored = 0
     if mirror_manifest.exists():
-        mirrored = sum(e["mirrored"] and e["split"] == "train" for e in
-                       json.loads(mirror_manifest.read_text())["episodes_manifest"])
+        mirror_dir = mirror_manifest.parent
+        mirrored = sum(json.loads(mirror_manifest.read_text())["episodes_manifest"][i]["clip"]
+                       .endswith("_mirror") for i in split_indices(mirror_dir)["train"])
     points.append((64 + mirrored, "raw_mirror_10k", split_indices(DATASET)["train"]))
     for demos, policy, trained in points:
         all72, excluded = load(policy, "all72"), load(policy, "excluded55")
