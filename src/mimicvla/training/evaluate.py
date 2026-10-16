@@ -23,8 +23,7 @@ from mimicvla.sim.env import PandaUSBEnv, SimConfig, insertion_success_from_metr
 from mimicvla.sim.scene import SocketGeometry
 
 
-GEOMETRY = SocketGeometry(inner_half_x_m=.0075, inner_half_y_m=.0035,
-                          mouth_half_x_m=.0075, mouth_half_y_m=.0035)
+GEOMETRY = SocketGeometry(inner_half_x_m=.0075, inner_half_y_m=.0035)
 SUCCESS_DEPTH_M = .012
 
 

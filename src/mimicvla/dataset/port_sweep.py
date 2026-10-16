@@ -74,9 +74,7 @@ def main() -> None:
         try:
             width_mm, height_mm = map(float, size.lower().split("x"))
             geometry = SocketGeometry(inner_half_x_m=width_mm / 2000,
-                                      inner_half_y_m=height_mm / 2000,
-                                      mouth_half_x_m=width_mm / 2000,
-                                      mouth_half_y_m=height_mm / 2000)
+                                      inner_half_y_m=height_mm / 2000)
         except (ValueError, TypeError) as error:
             parser.error(f"Invalid --size {size!r}: {error}")
         rows = []

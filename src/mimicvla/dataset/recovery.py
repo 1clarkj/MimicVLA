@@ -29,8 +29,7 @@ from mimicvla.sim.env import PandaUSBEnv, SimConfig
 from mimicvla.sim.scene import SocketGeometry
 
 
-GEOMETRY = SocketGeometry(inner_half_x_m=.0075, inner_half_y_m=.0035,
-                          mouth_half_x_m=.0075, mouth_half_y_m=.0035)
+GEOMETRY = SocketGeometry(inner_half_x_m=.0075, inner_half_y_m=.0035)
 DEFAULT_SOURCE = Path("outputs/datasets/usb_15x7_no_funnel_full_v2")
 MAX_STEP_M = .003
 MAX_STEP_RAD = np.deg2rad(2)

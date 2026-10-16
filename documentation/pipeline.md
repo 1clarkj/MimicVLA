@@ -13,11 +13,11 @@ generated or local and are not in the repository.
 flowchart LR
     A[iPhone video] --> B[track-video / evaluate-dual-recordings<br>marker poses, gap policy]
     C[ChArUco video] --> D[calibrate-camera] --> B
-    B --> E[recalibrate_recordings.py<br>per-session tip offset]
-    E --> F[replay_recalibrated.py<br>retarget + MuJoCo replay]
-    F --> G[review_trials.sh<br>human review]
-    G --> H[sweep_no_funnel_port.py<br>port size]
-    H --> I[export_compact_no_funnel_lerobot.py<br>72 episodes, LeRobot v3]
+    B --> E[dataset.recalibrate<br>per-session tip offset]
+    E --> F[dataset.replay / render<br>retarget + MuJoCo replay]
+    F --> G[dataset.review<br>human review]
+    G --> H[dataset.port_sweep<br>port size]
+    H --> I[dataset.export<br>72 episodes, LeRobot v3]
     I --> J[label variants<br>low-pass, recovery, mirrored]
 ```
 
@@ -234,11 +234,11 @@ an optional override and reason). Decisions are saved to
 `outputs/trial_review/decisions.csv`. Simulated entry is shown but does not
 gate acceptance.
 
-Review happened while replays used a wider 18 × 10 mm port. An earlier
-version added a 30 × 20 mm funnel mouth with an 8 mm sloped guide; the funnel
-was dropped because it caused strong contact. `curriculum_socket(tightness)`
-in `src/mimicvla/sim/scene.py` still interpolates from that guided port (0)
-to the strict port (1).
+Review used replays into a wider 18 × 10 mm port. An earlier version added a
+30 × 20 mm funnel with an 8 mm sloped guide, which let more replays insert
+but pushed the plug hard against the funnel walls. It was dropped, and the
+funnel code was removed; every port in the final pipeline is a plain
+rectangular opening.
 
 Selection:
 
@@ -254,7 +254,7 @@ Selection:
 
 One gap in reproducibility: the audit reads the 75-clip intermediate export
 `usb_15x7_no_funnel_reviewed_7mm_v1`, which an earlier version of
-`export_compact_no_funnel_lerobot.py` produced. The current exporter goes
+`mimicvla.dataset.export` produced. The current exporter goes
 straight from the 103 accepted clips and the audit to the 72-episode dataset,
 so rebuilding from scratch needs that intermediate export or the published
 LeRobot dataset.
@@ -329,11 +329,11 @@ episodes that pass the same 15 × 7 mm replay gate.
 
 | Dataset | Script | Episodes | Frames | Change |
 | --- | --- | ---: | ---: | --- |
-| `usb_15x7_no_funnel_full_v2` | `export_compact_no_funnel_lerobot.py` | 72 | 8,089 | Raw tracked poses |
-| `usb_15x7_no_funnel_lowpass2hz_v1` | `export_smoothed_lerobot.py --lowpass-hz 2` | 55 | 4,768 | Zero-phase 2nd-order Butterworth at 2 Hz on tip position and orientation |
-| `usb_15x7_no_funnel_recovery_v1` | `export_recovery_lerobot.py` (gain 1.0) | 254 | 28,821 | Recovery labels that remove the whole offset in one step |
-| `usb_15x7_no_funnel_recovery_v2` | `export_recovery_lerobot.py --correction-gain 0.15` | 254 | 28,821 | Recovery labels that remove 15% of the offset per step |
-| `usb_15x7_no_funnel_mirror_v1` | `export_mirrored_lerobot.py` | 120 | 13,806 | 72 originals plus 48 mirrored copies |
+| `usb_15x7_no_funnel_full_v2` | `dataset.export` | 72 | 8,089 | Raw tracked poses |
+| `usb_15x7_no_funnel_lowpass2hz_v1` | `dataset.lowpass --lowpass-hz 2` | 55 | 4,768 | Zero-phase 2nd-order Butterworth at 2 Hz on tip position and orientation |
+| `usb_15x7_no_funnel_recovery_v1` | `dataset.recovery` (gain 1.0) | 254 | 28,821 | Recovery labels that remove the whole offset in one step |
+| `usb_15x7_no_funnel_recovery_v2` | `dataset.recovery --correction-gain 0.15` | 254 | 28,821 | Recovery labels that remove 15% of the offset per step |
+| `usb_15x7_no_funnel_mirror_v1` | `dataset.mirror` | 120 | 13,806 | 72 originals plus 48 mirrored copies |
 
 Low-pass. 72% of the tracked tip's angular-velocity power is at or above
 5 Hz and 7% below 2 Hz; deliberate hand motion lies below 2–3 Hz. Filtering
@@ -397,7 +397,7 @@ Modules run as `python -m <module>` from the repository root.
 | Replays with recalibrated offsets | `mimicvla.dataset.replay`, `mimicvla.dataset.render` (two-marker, widened port), `mimicvla.dataset.replay_additional` (single-marker and earlier two-marker, widened port) |
 | Mount-stability check and review queues | `mimicvla.dataset.curate` |
 | Review dashboard | `mimicvla.dataset.review` |
-| Reviewed 18 × 10 mm export | `mimicvla.dataset.export_review --geometry wide_no_funnel` |
+| Reviewed 18 × 10 mm export | `mimicvla.dataset.export_review` |
 | Port sweep | `mimicvla.dataset.port_sweep` |
 | Full-replay audit | `mimicvla.dataset.audit` |
 | 15 × 7 mm training dataset | `mimicvla.dataset.export` |

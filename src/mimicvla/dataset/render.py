@@ -1,4 +1,7 @@
-"""Render guided Panda replays for the visual trial-review dashboard."""
+"""Replay and render clips on the widened 18 x 10 mm port for the review dashboard.
+
+    python -m mimicvla.dataset.render [--batch dual_original] [--review-queue]
+"""
 
 import argparse
 import csv
@@ -9,28 +12,21 @@ import numpy as np
 
 from mimicvla.retarget import replay_recording
 from mimicvla.sim.env import SimConfig
-from mimicvla.sim.scene import SocketGeometry, TRAINING_SOCKET
+from mimicvla.sim.scene import SocketGeometry
+
+WIDE_PORT = SocketGeometry(inner_half_x_m=.009, inner_half_y_m=.005)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch", default="dual_original")
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--fallback", action="store_true")
-    parser.add_argument("--geometry", choices=("training", "wide_no_funnel"),
-                        default="training")
     parser.add_argument("--review-queue", action="store_true",
                         help="render low-contact candidates from the no-funnel queue")
     args = parser.parse_args()
-    if args.fallback and args.geometry != "training":
-        parser.error("marker-0 fallback was only replayed with training geometry")
-    if args.review_queue and args.geometry != "wide_no_funnel":
-        parser.error("--review-queue requires wide_no_funnel geometry")
     root = Path("outputs/recalibration")
-    source_file = root / ("fallback_results.json" if args.fallback else "replay_results.json")
-    rows = [row for row in json.loads(source_file.read_text())
-            if row["batch"] == args.batch and row["status"] == "replayable"
-            and (not args.fallback or row.get("training_prefix_candidate"))]
+    rows = [row for row in json.loads((root / "replay_results.json").read_text())
+            if row["batch"] == args.batch and row["status"] == "replayable"]
     if args.review_queue:
         queue_file = ("wide_no_funnel_review_queue.csv" if args.batch == "dual_original"
                       else "additional_wide_no_funnel_review_queue.csv")
@@ -43,9 +39,7 @@ def main() -> None:
     epochs = json.loads((root / "candidate_mounts.json").read_text())["batches"][args.batch]["epochs"]
     for row in rows[:args.limit]:
         folder = root / "replays" / args.batch / row["clip"]
-        if args.fallback:
-            folder /= "marker0_fallback"
-        output = folder / args.geometry
+        output = folder / "wide_no_funnel"
         if (output / "replay.mp4").exists():
             continue
         epoch = next(epoch for epoch in epochs
@@ -54,10 +48,7 @@ def main() -> None:
                          start_frame=row["start_frame"], end_frame=row["end_frame"],
                          complete_segment=True,
                          marker_tip=np.asarray(epoch["T_marker0_usb_tip"]),
-                         sim_config=SimConfig(max_steps=1000, geometry=(
-                             TRAINING_SOCKET if args.geometry == "training" else
-                             SocketGeometry(inner_half_x_m=.009, inner_half_y_m=.005,
-                                            mouth_half_x_m=.009, mouth_half_y_m=.005))),
+                         sim_config=SimConfig(max_steps=1000, geometry=WIDE_PORT),
                          write_video=True)
         print(row["clip"], flush=True)
 

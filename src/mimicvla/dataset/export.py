@@ -15,8 +15,7 @@ from mimicvla.sim.scene import SocketGeometry
 
 
 DATASET_ID = "usb_15x7_no_funnel_full_v2"
-GEOMETRY = SocketGeometry(inner_half_x_m=.0075, inner_half_y_m=.0035,
-                          mouth_half_x_m=.0075, mouth_half_y_m=.0035)
+GEOMETRY = SocketGeometry(inner_half_x_m=.0075, inner_half_y_m=.0035)
 DEPTH_M = .007
 SWEEP_PATH = Path("outputs/recalibration/no_funnel_7mm_port_sweep.json")
 SOURCE_MANIFEST = Path("outputs/datasets/usb_wide_no_funnel_reviewed_all_v2/"

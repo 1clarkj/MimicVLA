@@ -28,33 +28,13 @@ class SocketPose:
 
 @dataclass(frozen=True)
 class SocketGeometry:
-    """Physical cavity and optional entry guide; dimensions are half widths."""
+    """Rectangular port opening; dimensions are half widths."""
 
     inner_half_x_m: float = SOCKET_INNER_HALF_X_M
     inner_half_y_m: float = SOCKET_INNER_HALF_Y_M
-    mouth_half_x_m: float = SOCKET_INNER_HALF_X_M
-    mouth_half_y_m: float = SOCKET_INNER_HALF_Y_M
-    funnel_depth_m: float = 0.0
-    funnel_solref_timeconst_s: float = 0.02
 
 
 STRICT_SOCKET = SocketGeometry()
-TRAINING_SOCKET = SocketGeometry(inner_half_x_m=.009,
-                                 inner_half_y_m=.005,
-                                 mouth_half_x_m=.015,
-                                 mouth_half_y_m=.010,
-                                 funnel_depth_m=.008)
-
-
-def curriculum_socket(tightness: float) -> SocketGeometry:
-    """Interpolate from the guided training port (0) to the strict port (1)."""
-    if not 0 <= tightness <= 1:
-        raise ValueError("tightness must be between 0 and 1")
-    return SocketGeometry(**{
-        field: (1 - tightness) * getattr(TRAINING_SOCKET, field) +
-               tightness * getattr(STRICT_SOCKET, field)
-        for field in SocketGeometry.__dataclass_fields__
-    })
 
 
 def _camera_quat_wxyz(position: np.ndarray, target: np.ndarray,
@@ -72,12 +52,8 @@ def _camera_quat_wxyz(position: np.ndarray, target: np.ndarray,
 def build_model(socket: SocketPose, geometry: SocketGeometry = STRICT_SOCKET) -> mujoco.MjModel:
     """Return an editable official Panda scene with a simple USB-A fixture."""
     if (geometry.inner_half_x_m <= USB_HALF_WIDTH_M or
-            geometry.inner_half_y_m <= USB_HALF_HEIGHT_M or
-            geometry.mouth_half_x_m < geometry.inner_half_x_m or
-            geometry.mouth_half_y_m < geometry.inner_half_y_m or
-            geometry.funnel_depth_m < 0 or
-            geometry.funnel_solref_timeconst_s <= 0):
-        raise ValueError("Socket geometry must clear the plug and widen toward its mouth")
+            geometry.inner_half_y_m <= USB_HALF_HEIGHT_M):
+        raise ValueError("Socket opening must clear the plug")
     spec = menagerie.get("franka_emika_panda").spec("scene")
     hand = spec.body("hand")
     # Sites are geometric references for control and scoring, not policy cues.
@@ -136,10 +112,9 @@ def build_model(socket: SocketPose, geometry: SocketGeometry = STRICT_SOCKET) ->
         size=[inner_x + wall, inner_y + wall, wall / 2],
         rgba=[0.12, 0.16, 0.2, 1],
     )
-    # Laptop-like front face. Four boxes form a real opening; their front
-    # surfaces and the socket mouth are both at local Z = 0. Local +Z goes
-    # inside the laptop. Unlike the previous block, the socket does not stick
-    # out in front of the wall.
+    # Flush front panel. Four boxes form a real opening; their front surfaces
+    # and the socket mouth are both at local Z = 0, and local +Z points into
+    # the panel.
     panel_half_x = 0.12
     panel_half_y = 0.08
     panel_depth = 0.008
@@ -158,32 +133,6 @@ def build_model(socket: SocketPose, geometry: SocketGeometry = STRICT_SOCKET) ->
             size=[panel_half_x, top_height, panel_depth / 2],
             rgba=[0.10, 0.11, 0.13, 1],
         )
-    if geometry.funnel_depth_m:
-        depth = geometry.funnel_depth_m
-        mouth_x, mouth_y = geometry.mouth_half_x_m, geometry.mouth_half_y_m
-        for sign in (-1, 1):
-            x_delta = inner_x - mouth_x
-            x_angle = np.arctan2(sign * x_delta, depth)
-            x_quat = Rotation.from_euler("y", x_angle).as_quat()[[3, 0, 1, 2]]
-            body.add_geom(
-                name=f"funnel_x_{sign}", type=mujoco.mjtGeom.mjGEOM_BOX,
-                pos=[sign * (inner_x + mouth_x) / 2, 0, -depth / 2],
-                quat=x_quat.tolist(),
-                size=[wall / 2, mouth_y + wall, np.hypot(depth, x_delta) / 2],
-                solref=[geometry.funnel_solref_timeconst_s, 1.0],
-                rgba=[0.25, 0.27, 0.30, 1],
-            )
-            y_delta = inner_y - mouth_y
-            y_angle = np.arctan2(-sign * y_delta, depth)
-            y_quat = Rotation.from_euler("x", y_angle).as_quat()[[3, 0, 1, 2]]
-            body.add_geom(
-                name=f"funnel_y_{sign}", type=mujoco.mjtGeom.mjGEOM_BOX,
-                pos=[0, sign * (inner_y + mouth_y) / 2, -depth / 2],
-                quat=y_quat.tolist(),
-                size=[mouth_x + wall, wall / 2, np.hypot(depth, y_delta) / 2],
-                solref=[geometry.funnel_solref_timeconst_s, 1.0],
-                rgba=[0.25, 0.27, 0.30, 1],
-            )
     # A non-colliding metallic rim makes the flush slot visible to RGB cameras.
     # Its sub-millimetre thickness is visual only; the panel boxes own contact.
     rim = 0.0012

@@ -117,10 +117,8 @@ class PandaUSBEnv:
         socket_id = self.model.body("socket").id
         bad_collision = False
         wall_contacts = 0
-        funnel_contacts = 0
         socket_contacts = 0
         max_wall_penetration = 0.0
-        max_funnel_penetration = 0.0
         max_wall_force = 0.0
         for i in range(self.data.ncon):
             contact = self.data.contact[i]
@@ -129,18 +127,10 @@ class PandaUSBEnv:
                 self.model.geom(contact.geom2).bodyid[0],
             )
             if socket_id in body_ids and body_ids[0] != body_ids[1]:
-                # The entry guide is meant to be touched; allow shallow
-                # compliant overlap there while keeping the throat strict.
-                funnel_contact = any(self.model.geom(geom_id).name.startswith("funnel_")
-                                     for geom_id in (contact.geom1, contact.geom2))
-                bad_collision |= contact.dist < (-.003 if funnel_contact else -.001)
+                bad_collision |= contact.dist < -.001
                 if contact.dist <= 0:
                     socket_contacts += 1
-                    if funnel_contact:
-                        funnel_contacts += 1
-                        max_funnel_penetration = max(max_funnel_penetration, -float(contact.dist))
                     wall_geom = any(self.model.geom(geom_id).name.startswith("wall_")
-                                    or self.model.geom(geom_id).name.startswith("funnel_")
                                     for geom_id in (contact.geom1, contact.geom2))
                     if wall_geom:
                         wall_contacts += 1
@@ -157,8 +147,6 @@ class PandaUSBEnv:
             "alignment_success": bool(aligned),
             "bad_collision": bool(bad_collision),
             "socket_contact_count": socket_contacts,
-            "funnel_contact_count": funnel_contacts,
-            "max_funnel_penetration_m": max_funnel_penetration,
             "wall_contact_count": wall_contacts,
             "wall_contact": bool(wall_contacts),
             "max_wall_penetration_m": max_wall_penetration,

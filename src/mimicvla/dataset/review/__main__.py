@@ -17,6 +17,7 @@ import imageio_ffmpeg
 
 
 ROOT = Path(__file__).resolve().parents[4]  # repository root
+REVIEW_NOW = ("review_first", "review_next")
 FIELDS = ("stem", "decision", "human_success", "tracking", "replay", "notes",
           "override", "override_reasons", "updated_at")
 CHOICES = {
@@ -33,16 +34,9 @@ def load_trials(results_dir: Path, scores_file: Path) -> list[dict]:
     recalibrated_path = ROOT / "outputs/recalibration/replay_results.json"
     recalibrated = ({row["clip"]: row for row in json.loads(recalibrated_path.read_text())}
                     if recalibrated_path.exists() else {})
-    fallback_path = ROOT / "outputs/recalibration/fallback_results.json"
-    fallbacks = ({row["clip"]: row for row in json.loads(fallback_path.read_text())}
-                 if fallback_path.exists() else {})
     stability_path = ROOT / "outputs/recalibration/marker_mount_stability.json"
     stability = ({row["clip"]: row for row in json.loads(stability_path.read_text())}
                  if stability_path.exists() else {})
-    contact_path = ROOT / "outputs/recalibration/guided_contact_audit.json"
-    contact = ({(row["clip"], row["tracking_mode"]): row
-                for row in json.loads(contact_path.read_text())}
-               if contact_path.exists() else {})
     no_funnel_queue_path = ROOT / "outputs/recalibration/wide_no_funnel_review_queue.csv"
     if no_funnel_queue_path.exists():
         with no_funnel_queue_path.open(newline="") as stream:
@@ -65,26 +59,20 @@ def load_trials(results_dir: Path, scores_file: Path) -> list[dict]:
         stem = Path(row["video"]).stem
         score = by_stem.get(stem)
         updated = recalibrated.get(stem, {})
-        fallback = fallbacks.get(stem, {})
         mount_stability = stability.get(stem, {})
-        guided_contact = contact.get((stem, "primary"), {})
-        fallback_contact = contact.get((stem, "marker0_fallback"), {})
         no_funnel = no_funnel_queue.get(stem, {})
         if score is None:
             raise ValueError(f"Missing current 12 mm score for {stem}")
         source = (ROOT / row["video"]).resolve()
         trial_dir = results_dir / "dual" / stem
         historical_replay = trial_dir / "replay/replay.mp4"
-        guided_replay = ROOT / "outputs/recalibration/replays/dual_original" / stem / "training/replay.mp4"
+        widened_replay = ROOT / "outputs/recalibration/replays/dual_original" / stem / "wide_no_funnel/replay.mp4"
         trial = {
             "stem": stem,
             "cohort": "later" if stem >= "10112026_222522" else "pilot",
             "source": str(source),
             "plot": str(trial_dir / "tracking" / "trajectory.png"),
-            "replay_video": str(historical_replay if historical_replay.exists() else guided_replay),
-            "guided_replay_video": str(guided_replay),
-            "fallback_replay_video": str(ROOT / "outputs/recalibration/replays/dual_original" /
-                                         stem / "marker0_fallback/training/replay.mp4"),
+            "replay_video": str(historical_replay if historical_replay.exists() else widened_replay),
             "no_funnel_replay_video": str(ROOT / no_funnel["replay_video"])
             if no_funnel else "",
             "no_funnel_review_tier": no_funnel.get("tier", ""),
@@ -113,22 +101,13 @@ def load_trials(results_dir: Path, scores_file: Path) -> list[dict]:
             "wall_penetration_mm": row.get("max_wall_penetration_mm"),
             "marker0_eligible": bool(marker0.get(stem, {}).get("eligible", False)),
             "calibrated_strict_success": updated.get("strict_success"),
-            "calibrated_training_success": updated.get("training_success"),
-            "calibrated_training_candidate": updated.get("training_prefix_candidate"),
-            "calibrated_training_depth_mm": updated.get("training_max_depth_mm"),
             "calibrated_strict_depth_mm": updated.get("strict_max_depth_mm"),
             "calibration_approach_truncated": updated.get("approach_truncated"),
-            "marker0_guided_fallback_candidate": fallback.get("training_prefix_candidate", False),
             "within_clip_mount_shift_mm": mount_stability.get(
                 "early_late_mount_translation_shift_mm"),
-            "guided_prefix_max_wall_force_n": guided_contact.get(
-                "max_wall_force_n_before_success"),
-            "fallback_prefix_max_wall_force_n": fallback_contact.get(
-                "max_wall_force_n_before_success"),
         }
         trial["priority"] = (0 if trial["eligible"] and (trial["quality_ok"] or
-                                                          trial["calibrated_training_candidate"] or
-                                                          trial["marker0_guided_fallback_candidate"]) else
+                                                          trial["no_funnel_review_tier"] in REVIEW_NOW) else
                              1 if trial["eligible"] else 2)
         trials.append(trial)
     single_results = ROOT / "outputs/video_evaluation_pose_prior/results.json"
@@ -143,17 +122,14 @@ def load_trials(results_dir: Path, scores_file: Path) -> list[dict]:
             batch = f"single_{row['usb_marker_mm']}mm"
             source = (ROOT / row["video"]).resolve()
             trial_dir = ROOT / "outputs/video_evaluation_pose_prior" / stem
-            guided = ROOT / "outputs/recalibration/replays" / batch / stem / "training/replay.mp4"
+            widened = ROOT / "outputs/recalibration/replays" / batch / stem / "wide_no_funnel/replay.mp4"
             historical_replay = trial_dir / "replay/replay.mp4"
-            guided_contact = contact.get((stem, "primary"), {})
             no_funnel = no_funnel_queue.get(stem, {})
             trial = {
                 "stem": stem, "cohort": batch,
                 "source": str(source),
                 "plot": str(trial_dir / "tracking/trajectory.png"),
-                "replay_video": str(historical_replay if historical_replay.exists() else guided),
-                "guided_replay_video": str(guided),
-                "fallback_replay_video": "",
+                "replay_video": str(historical_replay if historical_replay.exists() else widened),
                 "no_funnel_replay_video": str(ROOT / no_funnel["replay_video"])
                 if no_funnel else "",
                 "no_funnel_review_tier": no_funnel.get("tier", ""),
@@ -181,19 +157,12 @@ def load_trials(results_dir: Path, scores_file: Path) -> list[dict]:
                                         if row.get("max_wall_penetration_m") is not None else None),
                 "marker0_eligible": False,
                 "calibrated_strict_success": updated.get("strict_success"),
-                "calibrated_training_success": updated.get("training_success"),
-                "calibrated_training_candidate": updated.get("training_prefix_candidate"),
-                "calibrated_training_depth_mm": updated.get("training_max_depth_mm"),
                 "calibrated_strict_depth_mm": updated.get("strict_max_depth_mm"),
                 "calibration_approach_truncated": updated.get("approach_truncated"),
-                "marker0_guided_fallback_candidate": False,
                 "within_clip_mount_shift_mm": None,
-                "guided_prefix_max_wall_force_n": guided_contact.get(
-                    "max_wall_force_n_before_success"),
-                "fallback_prefix_max_wall_force_n": None,
             }
             trial["priority"] = (0 if trial["eligible"] and
-                                 (trial["quality_ok"] or trial["calibrated_training_candidate"])
+                                 (trial["quality_ok"] or trial["no_funnel_review_tier"] in REVIEW_NOW)
                                  else 1 if trial["eligible"] else 2)
             trials.append(trial)
     older_results = ROOT / "outputs/dual_marker_comparison_tip_xminus3/results.json"
@@ -212,16 +181,14 @@ def load_trials(results_dir: Path, scores_file: Path) -> list[dict]:
             updated = recalibrated.get(stem, {})
             source = (ROOT / row["video"]).resolve()
             trial_dir = ROOT / "outputs/dual_marker_comparison_tip_xminus3/dual" / stem
-            guided = ROOT / "outputs/recalibration/replays/dual_minus3" / stem / "training/replay.mp4"
+            widened = ROOT / "outputs/recalibration/replays/dual_minus3" / stem / "wide_no_funnel/replay.mp4"
             historical = trial_dir / "replay/replay.mp4"
-            guided_contact = contact.get((stem, "primary"), {})
             no_funnel = no_funnel_queue.get(stem, {})
             trial = {
                 "stem": stem, "cohort": "dual_minus3", "source": str(source),
                 "plot": str(ROOT / "outputs/dual_marker_comparison/dual" / stem /
                             "tracking/trajectory.png"),
-                "replay_video": str(historical if historical.exists() else guided),
-                "guided_replay_video": str(guided), "fallback_replay_video": "",
+                "replay_video": str(historical if historical.exists() else widened),
                 "no_funnel_replay_video": str(ROOT / no_funnel["replay_video"])
                 if no_funnel else "",
                 "no_funnel_review_tier": no_funnel.get("tier", ""),
@@ -249,19 +216,12 @@ def load_trials(results_dir: Path, scores_file: Path) -> list[dict]:
                 "wall_penetration_mm": row.get("max_wall_penetration_mm"),
                 "marker0_eligible": bool(marker0_rows.get(stem, {}).get("eligible", False)),
                 "calibrated_strict_success": updated.get("strict_success"),
-                "calibrated_training_success": updated.get("training_success"),
-                "calibrated_training_candidate": updated.get("training_prefix_candidate"),
-                "calibrated_training_depth_mm": updated.get("training_max_depth_mm"),
                 "calibrated_strict_depth_mm": updated.get("strict_max_depth_mm"),
                 "calibration_approach_truncated": updated.get("approach_truncated"),
-                "marker0_guided_fallback_candidate": False,
                 "within_clip_mount_shift_mm": None,
-                "guided_prefix_max_wall_force_n": guided_contact.get(
-                    "max_wall_force_n_before_success"),
-                "fallback_prefix_max_wall_force_n": None,
             }
             trial["priority"] = (0 if trial["eligible"] and
-                                 (trial["quality_ok"] or trial["calibrated_training_candidate"])
+                                 (trial["quality_ok"] or trial["no_funnel_review_tier"] in REVIEW_NOW)
                                  else 1 if trial["eligible"] else 2)
             trials.append(trial)
     return sorted(trials, key=lambda trial: (trial["priority"], trial["stem"]))
@@ -381,7 +341,7 @@ def handler_factory(trials: list[dict], decisions_path: Path, preview_dir: Path)
                     self.send_bytes((",".join(FIELDS) + "\n").encode(), "text/csv; charset=utf-8")
             elif path.startswith("/media/"):
                 parts = path.split("/")
-                if len(parts) != 4 or parts[2] not in {"source", "replay", "guided", "no_funnel", "fallback", "plot"}:
+                if len(parts) != 4 or parts[2] not in {"source", "replay", "no_funnel", "plot"}:
                     self.send_error(404)
                     return
                 kind, stem = parts[2], unquote(parts[3])
@@ -414,9 +374,8 @@ def handler_factory(trials: list[dict], decisions_path: Path, preview_dir: Path)
                     self.send_file(preview, "video/mp4")
                 else:
                     file = (trial["replay_video"] if kind == "replay" else
-                            trial["guided_replay_video"] if kind == "guided" else
                             trial.get("no_funnel_replay_video", "") if kind == "no_funnel" else
-                            trial["fallback_replay_video"] if kind == "fallback" else trial["plot"])
+                            trial["plot"])
                     self.send_file(Path(file), "image/png" if kind == "plot" else "video/mp4")
             else:
                 self.send_error(404)

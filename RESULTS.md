@@ -223,9 +223,8 @@ gives a 500 ms budget. Reducing to 5 steps (71 ms) is within noise of 10;
    end episodes on sustained high force, then fine-tune with RL on the
    policy's actions rather than its noise. DSRL showed that steering the noise
    is not enough.
-3. **Tighten the port step by step.** The simulator already interpolates
-   between a guided training port and the strict one
-   (`curriculum_socket(tightness)`), which suits an RL curriculum.
+3. **Tighten the port step by step.** Train on the widened port, then shrink
+   it towards the real 13.4 × 5.9 mm opening as an RL curriculum.
 4. **Try a world model as the evaluator.** The scarce resource here was
    trustworthy evaluation. A learned dynamics model that ranks policies the
    same way as the 55-start test would make the loop much cheaper.
