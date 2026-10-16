@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MimicVLA trial review</title>
+<style>
+  :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #111827; color: #f3f4f6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  header { padding: 14px 22px; border-bottom: 1px solid #374151; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+  h1 { font-size: 20px; margin: 0 16px 0 0; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  p { margin: 8px 0; line-height: 1.45; }
+  small, .muted { color: #9ca3af; }
+  button, select, textarea, input { font: inherit; }
+  button, select, input, textarea { border: 1px solid #4b5563; background: #1f2937; color: #f3f4f6; border-radius: 6px; padding: 7px 9px; }
+  button { cursor: pointer; }
+  button:hover { background: #374151; }
+  button.primary { background: #2563eb; border-color: #2563eb; }
+  button.primary:hover { background: #1d4ed8; }
+  main { display: grid; grid-template-columns: 310px minmax(0, 1fr); height: calc(100vh - 66px); }
+  aside { border-right: 1px solid #374151; display: flex; flex-direction: column; min-height: 0; }
+  .filters { padding: 12px; display: grid; gap: 8px; border-bottom: 1px solid #374151; }
+  .filters select, .filters input { width: 100%; }
+  #queue { overflow: auto; padding: 5px; }
+  .item { display: block; width: 100%; text-align: left; margin: 3px 0; padding: 10px; }
+  .item.active { border-color: #60a5fa; background: #1e3a5f; }
+  .item strong { display: block; }
+  .item small { display: block; margin-top: 4px; }
+  article { overflow: auto; padding: 20px; }
+  .top { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .badge { display: inline-block; padding: 3px 7px; border-radius: 6px; background: #374151; margin: 0 5px 5px 0; }
+  .good { background: #14532d; } .warn { background: #78350f; } .bad { background: #7f1d1d; }
+  .media { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+  .panel { border: 1px solid #374151; border-radius: 8px; padding: 12px; background: #1f2937; min-width: 0; }
+  video, img { width: 100%; max-height: 380px; object-fit: contain; background: #080c13; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 16px 0; }
+  .stat { border: 1px solid #374151; border-radius: 6px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 17px; margin-top: 3px; }
+  .review { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; }
+  .review label { display: grid; gap: 5px; }
+  textarea { width: 100%; min-height: 70px; margin-top: 8px; }
+  .override { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; }
+  .override input { margin-top: 3px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+  #message { min-height: 22px; }
+  @media(max-width: 900px) { main { display: block; height: auto; } aside { height: 300px; border-right: 0; border-bottom: 1px solid #374151; } .media { grid-template-columns: 1fr; } .review { grid-template-columns: repeat(2, 1fr); } }
+</style>
+<header>
+  <h1>Trial review</h1>
+  <span id="progress">Loading…</span>
+  <a href="/api/decisions.csv" download style="color:#93c5fd">Download decisions.csv</a>
+  <small>J/K: next/previous trial · Ctrl+Enter: save and next</small>
+</header>
+<main>
+  <aside>
+    <div class="filters">
+      <input id="search" type="search" placeholder="Search clip ID">
+      <select id="cohort"><option value="all">All clips</option><option value="later">Later dual 56</option><option value="pilot">Pilot dual 7</option><option value="dual_minus3">Earlier dual 9</option><option value="single_20mm">Single 20 mm</option><option value="single_12mm">Single 12 mm</option></select>
+      <select id="filter"><option value="all">All decisions</option><option value="unreviewed">Unreviewed</option><option value="accept">Accepted</option><option value="hold">On hold</option><option value="reject">Rejected</option></select>
+      <select id="noFunnelFilter"><option value="all">All geometry</option><option value="review_first">No funnel: review first</option><option value="review_next">No funnel: review next</option><option value="review_with_caution">No funnel: caution</option><option value="defer_high_contact">No funnel: high contact</option></select>
+    </div>
+    <div id="queue"></div>
+  </aside>
+  <article>
+    <div class="top"><div><h2 id="title"></h2><div id="badges"></div></div><div><button id="previous">Previous</button> <button id="next">Next</button></div></div>
+    <p class="muted">The user reports physical insertion in every source clip. Review whether tracking and Panda replay preserve a usable motion path. The simulated 12 mm tip-entry score is a diagnostic and does not control source acceptance.</p>
+    <div class="media">
+      <section class="panel"><h2>Human source clip</h2><video id="source" controls preload="metadata"></video><small>A browser-compatible preview is generated when opened; the original is preserved.</small></section>
+      <section class="panel"><h2>Panda replay</h2><video id="replayVideo" controls preload="metadata"></video><small>Compare the approach, entry, contacts, and final pose with the source.</small></section>
+      <section class="panel"><h2>Calibrated guided replay</h2><video id="guidedReplayVideo" controls preload="metadata"></video><small>Training port with the recalibrated tip transform. The strict port score remains separate.</small></section>
+      <section class="panel" id="noFunnelPanel" hidden><h2>Widened port, no funnel</h2><video id="noFunnelReplayVideo" controls preload="metadata"></video><small>Review this replay for the new training dataset. The queue ranks clean prefixes by contact and marker stability; accept only after visual inspection.</small></section>
+      <section class="panel" id="fallbackPanel" hidden><h2>Marker 0 fallback replay</h2><video id="fallbackReplayVideo" controls preload="metadata"></video><small>Used when the fused dual-marker track misses but the continuous marker 0 track reaches the guided port. Review its tracking closely.</small></section>
+      <section class="panel"><h2>Tracking trajectory</h2><img id="plot" alt="Tracking trajectory and gaps"></section>
+      <section class="panel"><h2>Review checks</h2><p>Check continuous motion through entry, pose jumps or gaps, marker disagreement near entry, socket alignment, and whether the replay follows the demonstrated motion. A simulated miss can result from model tolerance or pose error.</p><p id="reason" class="muted"></p></section>
+    </div>
+    <div id="stats" class="stats"></div>
+    <section class="panel">
+      <h2>Manual decision</h2>
+      <div class="review">
+        <label>Human insertion<select id="human_success"><option value="yes">Yes (reported for batch)</option><option value="unknown">Unknown</option><option value="no">No</option><option value="unclear">Unclear</option></select></label>
+        <label>Tracking quality<select id="tracking"><option value="unknown">Unknown</option><option value="good">Good</option><option value="questionable">Questionable</option><option value="bad">Bad</option></select></label>
+        <label>Replay quality<select id="replay"><option value="unknown">Unknown</option><option value="good">Good</option><option value="questionable">Questionable</option><option value="bad">Bad</option></select></label>
+        <label>Decision<select id="decision"><option value="unreviewed">Unreviewed</option><option value="accept">Accept source trajectory</option><option value="hold">Hold for investigation</option><option value="reject">Reject</option></select></label>
+      </div>
+      <label class="override"><input id="override" type="checkbox"><span><strong>Manual override</strong> — accept despite one or more automated or review checks. Record why the clip is usable in Notes; the failed checks will be saved in the CSV.</span></label>
+      <label for="notes">Notes</label><textarea id="notes" maxlength="2000" placeholder="Record the frame, visual issue, or reason for acceptance/rejection."></textarea>
+      <div class="actions"><button class="primary" id="save">Save</button><button id="saveNext">Save and next</button><span id="message" aria-live="polite"></span></div>
+      <small>Accept records that the human trajectory is worth keeping. The Panda replay must still be repaired and validated before it becomes a successful VLA training episode. A simulated tip-entry miss needs no override; unavailable replay or quality concerns do.</small>
+    </section>
+  </article>
+</main>
+<script>
+let trials = [], decisions = {}, current = null;
+const $ = id => document.getElementById(id);
+const fmt = (value, digits=1) => value === null || value === undefined ? '—' : Number(value).toFixed(digits);
+const status = t => (decisions[t.stem]?.decision || 'unreviewed');
+function filtered() {
+  return trials.filter(t => ($('cohort').value === 'all' || t.cohort === $('cohort').value) &&
+    ($('filter').value === 'all' || status(t) === $('filter').value) &&
+    ($('noFunnelFilter').value === 'all' || t.no_funnel_review_tier === $('noFunnelFilter').value) &&
+    t.stem.includes($('search').value.trim()));
+}
+function renderQueue() {
+  const list = filtered(); $('queue').replaceChildren();
+  for (const t of list) {
+    const b = document.createElement('button'); b.className = 'item' + (t.stem === current ? ' active' : '');
+    const label = !t.eligible ? 'No replayable span' : `${t.no_funnel_review_tier ? 'No funnel: ' + t.no_funnel_review_tier.replaceAll('_', ' ') : t.calibrated_training_candidate ? 'Guided replay candidate' : t.marker0_guided_fallback_candidate ? 'Marker 0 fallback candidate' : 'Review replay'} · strict ${t.calibrated_strict_success ? 'entry' : 'miss'}`;
+    const strong = document.createElement('strong'); strong.textContent = t.stem;
+    const small = document.createElement('small'); small.textContent = `${status(t)}${decisions[t.stem]?.override === 'True' ? ' (override)' : ''} · ${label}`;
+    b.append(strong, small); b.onclick = () => select(t.stem); $('queue').append(b);
+  }
+  $('progress').textContent = `${Object.values(decisions).filter(d => d.decision !== 'unreviewed').length}/${trials.length} decided · ${Object.values(decisions).filter(d => d.decision === 'accept').length} source trajectories accepted (${Object.values(decisions).filter(d => d.decision === 'accept' && d.override === 'True').length} overrides) · ${list.length} shown`;
+}
+function badge(text, cls='') { const span = document.createElement('span'); span.className = 'badge ' + cls; span.textContent = text; return span; }
+function stat(label, value) { const div = document.createElement('div'); div.className = 'stat'; const s = document.createElement('small'); s.textContent = label; const b = document.createElement('b'); b.textContent = value; div.append(s,b); return div; }
+function select(stem) {
+  const t = trials.find(x => x.stem === stem); if (!t) return; current = stem;
+  $('title').textContent = `${t.stem} · ${t.cohort.replaceAll('_', ' ')}`;
+  $('badges').replaceChildren(
+    badge(t.success ? 'Simulated tip entry' : 'Simulated tip missed 12 mm rule', t.success ? 'good' : 'warn'),
+    badge(t.calibrated_strict_success ? 'Calibrated strict entry' : 'Calibrated strict miss', t.calibrated_strict_success ? 'good' : 'warn'),
+    badge(t.calibrated_training_candidate ? 'Guided training prefix clean' : 'Guided replay needs review', t.calibrated_training_candidate ? 'good' : 'warn'),
+    badge(t.no_funnel_review_tier ? 'No funnel: ' + t.no_funnel_review_tier.replaceAll('_', ' ') : 'No no-funnel candidate', ['review_first', 'review_next'].includes(t.no_funnel_review_tier) ? 'good' : t.no_funnel_review_tier ? 'warn' : ''),
+    badge(t.marker0_guided_fallback_candidate ? 'Marker 0 fallback clean' : 'No marker 0 fallback', t.marker0_guided_fallback_candidate ? 'good' : ''),
+    badge(t.guided_prefix_max_wall_force_n == null ? 'Guide force unavailable' : t.guided_prefix_max_wall_force_n > 100 ? 'High simulated guide force' : 'Guide force ≤100 N', t.guided_prefix_max_wall_force_n > 100 ? 'warn' : ''),
+    badge(t.quality_ok ? 'Replay check passed' : 'Replay check flagged', t.quality_ok ? 'good' : 'bad'),
+    badge(t.eligible ? 'Replayable span' : 'No replayable span', t.eligible ? '' : 'bad'));
+  $('source').src = `/media/source/${encodeURIComponent(stem)}`;
+  $('replayVideo').src = t.eligible ? `/media/replay/${encodeURIComponent(stem)}` : '';
+  $('guidedReplayVideo').src = t.eligible ? `/media/guided/${encodeURIComponent(stem)}` : '';
+  $('noFunnelPanel').hidden = !t.no_funnel_review_tier || t.no_funnel_review_tier === 'defer_high_contact';
+  $('noFunnelReplayVideo').src = t.no_funnel_review_tier && t.no_funnel_review_tier !== 'defer_high_contact' ? `/media/no_funnel/${encodeURIComponent(stem)}` : '';
+  $('fallbackPanel').hidden = !t.marker0_guided_fallback_candidate;
+  $('fallbackReplayVideo').src = t.marker0_guided_fallback_candidate ? `/media/fallback/${encodeURIComponent(stem)}` : '';
+  $('plot').src = `/media/plot/${encodeURIComponent(stem)}`;
+  $('reason').textContent = t.reason || 'Selected frames: ' + (t.start_frame ?? '—') + '–' + (t.end_frame ?? '—') + '. Inspect source and replay at entry.';
+  $('stats').replaceChildren(
+    stat('Tracked frames', `${Math.round(t.valid_fraction * t.frames)}/${t.frames} (${fmt(t.valid_fraction * 100,0)}%)`),
+    stat('Longest raw gap', `${t.gap} frames`), stat('Interpolated frames', t.interpolated),
+    stat('Marker agreement p95', `${fmt(t.agreement_p95_mm)} mm`),
+    stat('Early to late marker-mount shift', `${fmt(t.within_clip_mount_shift_mm)} mm`),
+    stat('Marker disagreement >5 mm', `${t.disagreement_over_5mm_frames} frames`),
+    stat('Implausible pose steps', t.implausible_steps),
+    stat('Maximum tip depth', `${fmt(t.depth_mm)} mm`),
+    stat('Calibrated strict depth', `${fmt(t.calibrated_strict_depth_mm)} mm`),
+    stat('Guided training depth', `${fmt(t.calibrated_training_depth_mm)} mm`),
+    stat('Guided pre-entry max force', `${fmt(t.guided_prefix_max_wall_force_n)} N`),
+    stat('No-funnel pre-entry max force', `${fmt(t.no_funnel_prefix_max_wall_force_n)} N`),
+    stat('No-funnel queue concerns', t.no_funnel_concerns || '—'),
+    stat('Fallback pre-entry max force', `${fmt(t.fallback_prefix_max_wall_force_n)} N`),
+    stat('Approach after long gap', t.calibration_approach_truncated ? 'Yes' : 'No'),
+    stat('Wall contact steps', t.wall_contact_steps ?? '—'),
+    stat('Maximum wall force', `${fmt(t.wall_force_n)} N`),
+    stat('Maximum penetration', `${fmt(t.wall_penetration_mm,2)} mm`),
+    stat('Bad collision steps', t.bad_collision_steps ?? '—'),
+    stat('Marker 0 alone replayable', t.cohort.startsWith('single') ? '—' : t.marker0_eligible ? 'Yes' : 'No'));
+  const d = decisions[stem] || {};
+  for (const field of ['human_success','tracking','replay','decision']) $(field).value = d[field] || (field === 'decision' ? 'unreviewed' : field === 'human_success' ? 'yes' : 'unknown');
+  $('override').checked = d.override === 'True';
+  $('notes').value = d.notes || ''; $('message').textContent = '';
+  renderQueue();
+}
+function move(direction) { const list = filtered(); if (!list.length) return; let index = list.findIndex(t => t.stem === current); index = Math.max(0, Math.min(list.length - 1, index + direction)); select(list[index].stem); }
+async function save(next=false) {
+  if (!current) return;
+  const body = {stem: current, notes: $('notes').value, override: $('override').checked};
+  for (const field of ['human_success','tracking','replay','decision']) body[field] = $(field).value;
+  const oldList = filtered(); const oldIndex = oldList.findIndex(t => t.stem === current);
+  try {
+    const response = await fetch('/api/decision', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const result = await response.json(); if (!response.ok) throw Error(result.error);
+    decisions[current] = result; $('message').textContent = 'Saved at ' + result.updated_at; renderQueue();
+    if (next) { const list = filtered(); const target = list[Math.min(oldIndex + (list.some(t => t.stem === current) ? 1 : 0), list.length - 1)]; if (target) select(target.stem); }
+  } catch (error) { $('message').textContent = 'Could not save: ' + error.message; }
+}
+$('search').oninput = renderQueue; $('cohort').onchange = renderQueue; $('filter').onchange = renderQueue; $('noFunnelFilter').onchange = renderQueue;
+$('previous').onclick = () => move(-1); $('next').onclick = () => move(1);
+$('save').onclick = () => save(false); $('saveNext').onclick = () => save(true);
+document.onkeydown = event => { if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return; if (event.key === 'j') move(1); if (event.key === 'k') move(-1); };
+document.addEventListener('keydown', event => { if (event.ctrlKey && event.key === 'Enter') { event.preventDefault(); save(true); } });
+fetch('/api/trials').then(r => r.json()).then(data => { trials = data.trials; decisions = data.decisions; renderQueue(); if (trials.length) select(trials[0].stem); }).catch(e => $('progress').textContent = 'Could not load trials: ' + e.message);
+</script>
+</html>
