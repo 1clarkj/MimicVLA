@@ -10,7 +10,12 @@ about half the time from start poses it never trained on.
 Results, engineering choices and what did not work are in
 **[RESULTS.md](RESULTS.md)**.
 
-![Human recording, Panda replay and two policies from an unseen start](documentation/videos/unseen_start_222751_lowpass_vs_raw.gif)
+![iPhone recording, its Panda replay, and the trained policy from an unseen start](documentation/videos/unseen_start_222751.gif)
+
+*Left to right: the iPhone recording with marker tracking, the Panda replaying
+that motion in MuJoCo, and the trained policy starting from the same pose. This
+recording was never used for training. Each simulation panel shows a close
+view with the policy's front and wrist cameras below it.*
 
 ## How it works
 

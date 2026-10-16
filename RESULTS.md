@@ -11,13 +11,12 @@ of the things I tried did not work. Setup and commands are in the
 [README](README.md); full tables are in
 [documentation/experiments.md](documentation/experiments.md).
 
-![Human recording, Panda replay and two policies from an unseen start](documentation/videos/unseen_start_222751_lowpass_vs_raw.gif)
+![iPhone recording, its Panda replay, and the raw-label policy from an unseen start](documentation/videos/unseen_start_222751.gif)
 
 *Left to right: the iPhone recording with ArUco tracking; the Panda replaying
-the retargeted human motion; two SmolVLA policies from the same start. This
-start comes from a recording that never entered training. The replay itself
-misses, the low-pass-label policy fails (0/5 seeds), and the raw-label policy
-inserts in 2.7 s (5/5 seeds).*
+the retargeted human motion; the raw-label SmolVLA policy from the same start.
+This start comes from a recording that never entered training. The replay
+itself misses, but the policy inserts in 2.7 s (5/5 seeds).*
 
 ## Why USB insertion
 
@@ -129,6 +128,12 @@ low-pass model is **15 points worse** than raw labels (paired difference
 fits its own starts very well. It never sees the small off-trajectory states
 and corrections that the raw jitter contains, so from a new start it drifts
 and does not recover.
+
+![Low-pass and raw-label policies from the same unseen start](documentation/videos/unseen_start_222751_lowpass_vs_raw.gif)
+
+*The start from the top of this page. The low-pass policy (bottom left) drifts
+away from the port and fails on 0/5 seeds; the raw-label policy (bottom right)
+inserts on 5/5.*
 
 Without the 55-start test set I would have submitted this model. The 8-clip
 holdout could not separate the two: its intervals span about 60 points.

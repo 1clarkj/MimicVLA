@@ -443,25 +443,21 @@ All runs on the 72 start states, one rollout each, re-plan every 10 steps.
 
 ## Videos
 
-`mimicvla.training.videos` builds side-by-side clips in
-`documentation/videos/` (full-quality `.mp4` and a compact `.gif`). The panels
-are:
-
-1. The iPhone recording, cropped around the socket, with ArUco marker axes
-   and the projected socket and USB tip.
-2. The Panda replaying the retargeted human motion in MuJoCo, with the
-   policy's front camera inset.
-3. Each SmolVLA policy rolled out from the same start.
-
-The outcome is shown on the held final frame.
+`mimicvla.training.videos` builds the clips in `documentation/videos/`
+(full-quality `.mp4` and a compact `.gif`). Each shows the iPhone recording
+with the ArUco marker axes and projected socket and USB tip, the Panda
+replaying the retargeted motion, and SmolVLA rolled out from the same start
+(seed 1). Every simulation panel is a close three-quarter view with the
+policy's front and wrist cameras below. The outcome appears on the held final
+frame, with the start's result over the 5 evaluation seeds.
 
 | Video | Start | What it shows |
 |---|---|---|
-| `holdout_dual_marker_223447` | holdout | two-marker recording; low-pass policy inserts in 2.5 s |
-| `holdout_single_marker_194743` | holdout | single-marker recording; low-pass policy |
-| `train_start_195106` | training | a training start |
-| `unseen_start_222751_lowpass_vs_raw` | excluded | replay does not insert; low-pass fails (0/5 seeds); raw inserts in 2.7 s (5/5) |
-| `unseen_start_182731_both_fail` | excluded | both policies fail (0/5); low-pass reaches about 670 N |
+| `unseen_start_222751` | excluded | the replay misses; the raw policy inserts in 2.7 s (5/5 seeds) |
+| `unseen_start_222751_lowpass_vs_raw` | excluded | same start: low-pass fails (0/5), raw inserts (5/5) |
+| `unseen_start_182731_fail` | excluded | the raw policy fails (0/5) and ends about 5 cm off the port |
+| `holdout_dual_marker_223447` | holdout | two-marker recording; raw policy inserts (5/5) |
+| `holdout_single_marker_194743` | holdout | single-marker recording; raw policy inserts (4/5) |
 
 ## Reproduce
 
