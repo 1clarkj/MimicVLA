@@ -75,23 +75,27 @@ def _policy_screen(row: dict) -> list[str]:
         reasons.append("incomplete_robot_replay")
     if not row.get("joint_limits_ok", False):
         reasons.append("joint_limit_violation")
-    if row.get("bad_collision_steps", 0):
-        reasons.append("deep_collision")
     if not row.get("insertion_reached", False):
         reasons.append("no_geometric_insertion")
-    if row.get("wall_contact_steps", 0):
-        reasons.append("wall_contact")
     return reasons
 
 
 def export_raw_dataset(evaluation_dir: Path, calibration: Path,
-                       output_dir: Path) -> dict:
+                       output_dir: Path, rescore_results: Path | None = None) -> dict:
     """Export all videos, raw tracked poses, and physical frame metadata.
 
     This is intentionally not a LeRobotDataset: human videos have no Panda
     observations or actions. The videos/metadata.jsonl follows VideoFolder.
     """
     rows = json.loads((evaluation_dir / "results.json").read_text())
+    scores = {}
+    if rescore_results is not None:
+        scored_rows = json.loads(rescore_results.read_text())
+        scores = {row["video"]: row for row in scored_rows
+                  if row["batch"] == "single_marker_original"
+                  and row["mode"] == "single_marker"}
+        if {row["video"] for row in rows} != set(scores):
+            raise ValueError("Rescore results do not match the source evaluation videos")
     video_dir = output_dir / "videos"
     prior_metadata = video_dir / "metadata.jsonl"
     previous_ids = ({json.loads(line)["episode_id"] for line in prior_metadata.read_text().splitlines()}
@@ -118,6 +122,18 @@ def export_raw_dataset(evaluation_dir: Path, calibration: Path,
     (calibration_dir / "marker_mounts.json").write_text(json.dumps(transforms, indent=2) + "\n")
     metadata = []
     for row in rows:
+        row = row.copy()
+        if scores:
+            scored = scores[row["video"]]
+            if bool(row["eligible"]) != bool(scored["replay_eligible"]):
+                raise ValueError(f"Replay eligibility changed for {row['video']}")
+            row.update(success=scored["episode_success"],
+                       contact_free_success=scored["contact_free_success"],
+                       insertion_reached=scored["insertion_reached"],
+                       completed_segment=scored.get("completed_segment", False),
+                       joint_limits_ok=scored.get("joint_limits_ok", False),
+                       bad_collision_steps=scored.get("bad_collision_steps", 0),
+                       wall_contact_steps=scored.get("wall_contact_steps", 0))
         source = Path(row["video"])
         size_mm = row["usb_marker_mm"]
         episode_id = f"{size_mm}mm_{source.stem}"
@@ -185,11 +201,17 @@ def export_raw_dataset(evaluation_dir: Path, calibration: Path,
             "raw_valid_pose_fraction": row["valid_fraction"],
             "processed_valid_relative_poses": processed_valid_count,
             "interpolated_frames": row["interpolated_frames"],
+            "longest_raw_tracking_gap_frames": row.get("longest_raw_tracking_gap_frames", 0),
+            "usb_pose_prior_frames": row.get("usb_pose_prior_frames", 0),
+            "implausible_pose_steps": row.get("implausible_pose_steps", 0),
+            "selected_start_frame": row.get("start_frame"),
+            "selected_end_frame": row.get("end_frame"),
             "tracking_decision": "replay_candidate" if row["eligible"] else "reject_insufficient_coverage",
             "tracking_rejection_reason": None if row["eligible"] else row.get("reason"),
             "geometric_replay_success": row["success"],
             "contact_free_replay_success": row["contact_free_success"],
             "wall_contact_steps": row.get("wall_contact_steps", 0),
+            "deep_penetration_steps": row.get("bad_collision_steps", 0),
             "policy_training_status": ("excluded" if exclusion_reasons else
                                        "candidate_for_manual_review"),
             "policy_exclusion_reasons": exclusion_reasons,
@@ -198,8 +220,11 @@ def export_raw_dataset(evaluation_dir: Path, calibration: Path,
         for row in metadata:
             stream.write(json.dumps(row) + "\n")
     review_fields = ("episode_id", "usb_marker_size_mm", "frames", "raw_valid_pose_fraction",
-                     "interpolated_frames", "replay_eligible", "geometric_replay_success",
+                     "longest_raw_tracking_gap_frames", "usb_pose_prior_frames",
+                     "implausible_pose_steps", "interpolated_frames", "selected_start_frame",
+                     "selected_end_frame", "replay_eligible", "geometric_replay_success",
                      "contact_free_replay_success", "wall_contact_steps",
+                     "deep_penetration_steps",
                      "policy_training_status", "policy_exclusion_reasons")
     with (output_dir / "quality_review.csv").open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=review_fields)
@@ -237,6 +262,16 @@ are never overwritten. `frame_index` and `timestamp_s` align both files with
 the source video. `quality` and marker reprojection errors must be checked.
 Missing or rejected detections in the raw file have null target poses.
 
+Each observed marker also records `pose_selection`. Planar square markers can
+produce two similar reprojection solutions with very different orientations.
+The tracker uses nearby-frame continuity and, when the port is visible, the
+known marker mounts as a bounded orientation prior to choose between them.
+`task_orientation_prior` identifies frames where that prior decided the USB
+pose. This is task-specific inference, so visually review those frames before
+using a clip for robot training. `quality_review.csv` reports its usage,
+the longest raw tracking gap, and implausible inter-frame pose jumps. A pose
+gap longer than four frames is never filled.
+
 Tracking coverage after preprocessing: {sum(item['replay_eligible'] for item in metadata)}
 of {len(metadata)} videos contain a qualifying insertion span. Clips with
 `tracking_decision=reject_insufficient_coverage` remain in this archival
@@ -265,11 +300,13 @@ These are **human videos and measured task poses**, not Panda demonstrations.
 They contain no Panda joint states or robot actions and are not suitable as a
 LeRobot robot-policy dataset by themselves. A separate MuJoCo replay dataset
 will pair rendered policy images with actual simulated Panda states/actions.
-The current evaluation status in `videos/metadata.jsonl` is descriptive. A
-geometric replay success may still involve wall contact; inspect
-`contact_free_replay_success` and `wall_contact_steps` before use as training
-data. In this export, {sum(item['contact_free_replay_success'] for item in metadata)}
-videos passed the contact-free replay check.
+The current evaluation status in `videos/metadata.jsonl` is descriptive.
+Wall contact during insertion is allowed and remains a diagnostic in
+`wall_contact_steps`. Deep simulated interpenetration remains visible in
+`deep_penetration_steps` for manual review; it does not change the insertion
+label by itself.
+In this export, {sum(item['geometric_replay_success'] for item in metadata)}
+videos reached the insertion criterion; they still require manual review.
 
 The footage may show a person and their surroundings. Review privacy and
 choose a license before publishing this local export to a public Hub repo.

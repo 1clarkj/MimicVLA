@@ -64,6 +64,8 @@ def main() -> None:
     inspect.add_argument("--calibration", type=Path, required=True)
     inspect.add_argument("--frame-index", type=int, default=90)
     inspect.add_argument("--output", type=Path, default=Path("outputs/target_frame_inspection.jpg"))
+    inspect.add_argument("--tip-x-mm", type=float, default=0.0,
+                         help="marker 0 to USB tip X offset; use -3 for the new dual-marker mount")
     replay = commands.add_parser("replay-tracking", help="retarget tracked USB motion and replay it on Panda")
     replay.add_argument("--trajectory", type=Path, required=True)
     replay.add_argument("--output-dir", type=Path, default=Path("outputs/replay_tracking"))
@@ -71,16 +73,38 @@ def main() -> None:
     replay.add_argument("--end-frame", type=int)
     replay.add_argument("--complete-segment", action="store_true",
                         help="continue through all recorded targets after first insertion success")
+    replay.add_argument("--tip-x-mm", type=float, default=0.0,
+                        help="marker 0 to USB tip X offset; use -3 for the new dual-marker mount")
     evaluate = commands.add_parser("evaluate-recordings", help="track and replay all insertion videos")
     evaluate.add_argument("--video-dir", type=Path, default=Path("video_data"))
     evaluate.add_argument("--calibration", type=Path, default=Path("outputs/iphone_calibration.json"))
-    evaluate.add_argument("--output-dir", type=Path, default=Path("outputs/video_evaluation"))
+    evaluate.add_argument("--output-dir", type=Path, default=Path("outputs/video_evaluation_12mm_full_replay"))
     evaluate.add_argument("--reuse-existing-replays", action="store_true",
                           help="reuse completed replay summaries when selected frame range matches")
+    evaluate.add_argument("--retrack", action="store_true",
+                          help="re-estimate marker poses even when cached tracking exists")
+    dual = commands.add_parser("evaluate-dual-recordings",
+                               help="compare ID 0 only and IDs 0+10 on new recordings")
+    dual.add_argument("--video-dir", type=Path, default=Path("video_data/double_marker"))
+    dual.add_argument("--calibration", type=Path, default=Path("outputs/iphone_calibration.json"))
+    dual.add_argument("--output-dir", type=Path,
+                      help="separate output directory for non-default mounts")
+    dual.add_argument("--marker10-mm", type=float, default=22.0,
+                      help="measured outer black-square side of marker 10")
+    dual.add_argument("--tip-x-mm", type=float,
+                      help="marker 0 to tip X offset; inferred for known recording-batch directories")
+    dual.add_argument("--reuse-tracking-from", type=Path,
+                      help="reuse raw tracking from an earlier dual evaluation")
+    rescore = commands.add_parser("rescore-replays",
+                                  help="apply the current insertion criterion to saved MuJoCo steps")
+    rescore.add_argument("--output-dir", type=Path,
+                         default=Path("outputs/evaluation_depth_entry_12mm"))
     raw = commands.add_parser("export-raw-dataset", help="package videos and raw tracked poses for Hugging Face")
-    raw.add_argument("--evaluation-dir", type=Path, default=Path("outputs/video_evaluation"))
+    raw.add_argument("--evaluation-dir", type=Path, default=Path("outputs/video_evaluation_pose_prior"))
     raw.add_argument("--calibration", type=Path, default=Path("outputs/iphone_calibration.json"))
     raw.add_argument("--output-dir", type=Path, default=Path("outputs/datasets/usb_marker_raw"))
+    raw.add_argument("--rescore-results", type=Path,
+                     help="12 mm replay results JSON for current insertion and training labels")
     sim_data = commands.add_parser("export-sim-dataset", help="capture two-camera scripted Panda episodes in LeRobot")
     sim_data.add_argument("--output-dir", type=Path, default=Path("outputs/datasets/usb_sim_two_cam"))
     sim_data.add_argument("--episodes", type=int, default=2)
@@ -117,22 +141,36 @@ def main() -> None:
     elif args.command == "inspect-marker-frames":
         from .vision.target_frames import inspect_frame
         print(json.dumps(inspect_frame(args.trajectory, args.calibration,
-                                       args.frame_index, args.output), indent=2))
+                                       args.frame_index, args.output,
+                                       tip_x_mm=args.tip_x_mm), indent=2))
     elif args.command == "replay-tracking":
         from .retarget import replay_recording
+        from .vision.target_frames import marker_tip_with_x_offset
         print(json.dumps(replay_recording(args.trajectory, args.output_dir,
                                           start_frame=args.start_frame,
                                           end_frame=args.end_frame,
-                                          complete_segment=args.complete_segment), indent=2))
+                                          complete_segment=args.complete_segment,
+                                          marker_tip=marker_tip_with_x_offset(args.tip_x_mm)), indent=2))
     elif args.command == "evaluate-recordings":
         from .evaluation.recordings import evaluate_recordings
         print(json.dumps(evaluate_recordings(args.video_dir, args.calibration,
                                              args.output_dir,
-                                             reuse_existing_replays=args.reuse_existing_replays), indent=2))
+                                             reuse_existing_replays=args.reuse_existing_replays,
+                                             retrack=args.retrack), indent=2))
+    elif args.command == "evaluate-dual-recordings":
+        from .evaluation.dual_recordings import evaluate_dual_recordings
+        print(json.dumps(evaluate_dual_recordings(args.video_dir, args.calibration,
+                                                  args.output_dir,
+                                                  marker10_mm=args.marker10_mm,
+                                                  tip_x_mm=args.tip_x_mm,
+                                                  reuse_tracking_from=args.reuse_tracking_from), indent=2))
+    elif args.command == "rescore-replays":
+        from .evaluation.rescore import rescore_replays
+        print(json.dumps(rescore_replays(args.output_dir), indent=2))
     elif args.command == "export-raw-dataset":
         from .data.raw_export import export_raw_dataset
         print(json.dumps(export_raw_dataset(args.evaluation_dir, args.calibration,
-                                            args.output_dir), indent=2))
+                                            args.output_dir, args.rescore_results), indent=2))
     elif args.command == "export-sim-dataset":
         from .data.sim_export import export_sim_dataset
         print(json.dumps(export_sim_dataset(args.output_dir, args.episodes, args.seed), indent=2))

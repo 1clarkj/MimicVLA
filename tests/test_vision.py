@@ -3,11 +3,12 @@ import json
 import cv2
 import imageio.v2 as imageio
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from mimicvla.vision.calibrate import calibrate, load_calibration, make_board
-from mimicvla.vision.track import detect_pair, track_video
+from mimicvla.vision.track import _select_pose, detect_pair, track_video
 from mimicvla.vision.transforms import inverse, pose_matrix
-from mimicvla.vision.target_frames import provisional_mounts, socket_from_tip
+from mimicvla.vision.target_frames import marker_tip_with_x_offset, provisional_mounts, socket_from_tip
 
 
 def test_transform_inverse_and_composition():
@@ -15,6 +16,29 @@ def test_transform_inverse_and_composition():
     second = pose_matrix([-0.2, 0.3, 0.1], [0.01, -0.03, 0.1])
     np.testing.assert_allclose(first @ inverse(first), np.eye(4), atol=1e-12)
     np.testing.assert_allclose(inverse(first @ second), inverse(second) @ inverse(first), atol=1e-12)
+
+
+def test_ippe_pose_selection_prefers_continuous_normal():
+    previous = np.eye(4)
+    flipped = np.eye(4)
+    flipped[:3, :3] = Rotation.from_rotvec([0, 1.84, 0]).as_matrix()
+    smooth = np.eye(4)
+    smooth[:3, :3] = Rotation.from_rotvec([0, 0.016, 0]).as_matrix()
+    error, pose, method = _select_pose([(0.27, flipped), (1.17, smooth)], previous)
+    assert error == 1.17
+    assert method == "temporal_continuity"
+    np.testing.assert_allclose(pose, smooth)
+    error, pose, method = _select_pose([(0.27, flipped), (2.0, smooth)], previous)
+    assert error == 0.27
+    assert method == "lowest_reprojection"
+    np.testing.assert_allclose(pose, flipped)
+    # An unambiguous near-insertion orientation can recover after a long
+    # occlusion even when the previous branch is no longer trustworthy.
+    error, pose, method = _select_pose([(0.27, flipped), (1.17, smooth)],
+                                       flipped, expected=previous)
+    assert error == 1.17
+    assert method == "task_orientation_prior"
+    np.testing.assert_allclose(pose, smooth)
 
 
 def test_measured_marker_offsets_and_relative_targets():
@@ -31,6 +55,14 @@ def test_measured_marker_offsets_and_relative_targets():
     relative_markers = inverse(port_mount) @ inverse(marker_tip)
     record = {"quality": "ok", "T_port_usb_marker": relative_markers.tolist()}
     np.testing.assert_allclose(socket_from_tip(record, port_mount, marker_tip), np.eye(4), atol=1e-12)
+
+
+def test_new_mount_marker_center_is_plus_3mm_from_tip_in_x():
+    marker_tip = marker_tip_with_x_offset(-3)
+    np.testing.assert_allclose(marker_tip[:3, 3], [-.003, .030, -.003])
+    # X is shared by the marker and tip frames, so inversion gives the
+    # reported marker-centre position relative to the tip centre.
+    np.testing.assert_allclose(inverse(marker_tip)[0, 3], .003)
 
 
 def test_charuco_calibration_from_synthetic_views(tmp_path):

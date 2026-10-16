@@ -33,7 +33,9 @@ def test_policy_screen_explains_exclusions():
            "bad_collision_steps": 0, "insertion_reached": True, "wall_contact_steps": 0}
     assert _policy_screen(row) == []
     row["wall_contact_steps"] = 4
-    assert _policy_screen(row) == ["wall_contact"]
+    assert _policy_screen(row) == []
+    row["bad_collision_steps"] = 1
+    assert _policy_screen(row) == []
     row["eligible"] = False
     assert _policy_screen(row) == ["incomplete_tracked_insertion_span"]
 

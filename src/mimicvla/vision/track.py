@@ -16,12 +16,36 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from .calibrate import load_calibration
+from .target_frames import provisional_mounts
 from .transforms import inverse, pose_matrix, translation_rotvec
 
 
+def _select_pose(candidates: list[tuple[float, np.ndarray]],
+                 previous: np.ndarray | None,
+                 expected: np.ndarray | None = None) -> tuple[float, np.ndarray, str]:
+    candidates.sort(key=lambda item: item[0])
+    eligible = [item for item in candidates if item[0] <= candidates[0][0] + 1.5]
+    if expected is not None and len(eligible) > 1:
+        expected_rotation = Rotation.from_matrix(expected[:3, :3])
+        deviation = [(expected_rotation.inv() *
+                      Rotation.from_matrix(item[1][:3, :3])).magnitude() for item in eligible]
+        closest = int(np.argmin(deviation))
+        if deviation[closest] < np.deg2rad(35) and max(deviation) > np.deg2rad(70):
+            return eligible[closest][0], eligible[closest][1], "task_orientation_prior"
+    if previous is None or len(eligible) == 1:
+        return candidates[0][0], candidates[0][1], "lowest_reprojection"
+    old_rotation = Rotation.from_matrix(previous[:3, :3])
+    error, transform = min(eligible, key=lambda item: (
+        (old_rotation.inv() * Rotation.from_matrix(item[1][:3, :3])).magnitude()
+    ))
+    selection = "temporal_continuity" if error > candidates[0][0] + 1e-6 else "lowest_reprojection"
+    return error, transform, selection
+
+
 def estimate_marker(corners: np.ndarray, side_m: float, camera_matrix: np.ndarray,
-                    distortion: np.ndarray, previous: np.ndarray | None = None
-                    ) -> tuple[np.ndarray, float, float] | None:
+                    distortion: np.ndarray, previous: np.ndarray | None = None,
+                    expected: np.ndarray | None = None
+                    ) -> tuple[np.ndarray, float, float, str] | None:
     """Planar-square PnP; prefer pose continuity when reprojection errors are close."""
     half = side_m / 2
     object_points = np.array([[-half, half, 0], [half, half, 0],
@@ -41,15 +65,11 @@ def estimate_marker(corners: np.ndarray, side_m: float, camera_matrix: np.ndarra
         return None
     candidates.sort(key=lambda item: item[0])
     ambiguity_gap = (candidates[1][0] - candidates[0][0]) if len(candidates) > 1 else None
-    eligible = [item for item in candidates if item[0] <= candidates[0][0] + 0.75]
-    if previous is not None and len(eligible) > 1:
-        old_rotation = Rotation.from_matrix(previous[:3, :3])
-        error, transform = min(eligible, key=lambda item: (
-            (old_rotation.inv() * Rotation.from_matrix(item[1][:3, :3])).magnitude()
-        ))
-    else:
-        error, transform = candidates[0]
-    return transform, error, ambiguity_gap
+    # A square seen nearly face-on can have two IPPE poses with similar pixel
+    # errors but radically different normals. Motion continuity is more
+    # informative than a ~1 px advantage for a single frame.
+    error, transform, selection = _select_pose(candidates, previous, expected)
+    return transform, error, ambiguity_gap, selection
 
 
 def detect_pair(frame_bgr: np.ndarray, detector: cv2.aruco.ArucoDetector,
@@ -57,7 +77,8 @@ def detect_pair(frame_bgr: np.ndarray, detector: cv2.aruco.ArucoDetector,
                 usb_marker_m: float, port_marker_m: float,
                 max_error_px: float = 5.0,
                 previous: dict[str, np.ndarray] | None = None,
-                annotate: bool = True) -> tuple[dict, np.ndarray | None]:
+                annotate: bool = True,
+                marker_tip: np.ndarray | None = None) -> tuple[dict, np.ndarray | None]:
     """Return one record and an annotated BGR preview for a single frame."""
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     corners, ids, _ = detector.detectMarkers(gray)
@@ -69,18 +90,27 @@ def detect_pair(frame_bgr: np.ndarray, detector: cv2.aruco.ArucoDetector,
     if ids is not None:
         if annotate:
             cv2.aruco.drawDetectedMarkers(annotated, corners, ids)
-        for marker_id, side_m, label in [(0, usb_marker_m, "usb"), (1, port_marker_m, "port")]:
+        # Estimate the stationary port first. Its pose gives a weak, explicit
+        # orientation prior for disambiguating the planar USB marker.
+        for marker_id, side_m, label in [(1, port_marker_m, "port"), (0, usb_marker_m, "usb")]:
             matches = [i for i, value in enumerate(ids.ravel()) if int(value) == marker_id]
             if len(matches) != 1:
                 continue  # Duplicate printed IDs are ambiguous.
+            expected = None
+            if label == "usb" and "port" in record["markers"]:
+                port_mount, default_tip = provisional_mounts()
+                prior_tip = marker_tip if marker_tip is not None else default_tip
+                expected = (np.asarray(record["markers"]["port"]["T_camera_marker"]) @
+                            inverse(port_mount) @ inverse(prior_tip))
             result = estimate_marker(corners[matches[0]], side_m, camera_matrix, distortion,
-                                     None if previous is None else previous.get(label))
+                                     None if previous is None else previous.get(label), expected)
             if result is None:
                 continue
-            transform, error, ambiguity_gap = result
+            transform, error, ambiguity_gap, selection = result
             record["markers"][label] = {
                 "id": marker_id, "reprojection_error_px": error,
                 "pose_ambiguity_gap_px": ambiguity_gap,
+                "pose_selection": selection,
                 "T_camera_marker": transform.tolist(),
             }
             if previous is not None and error <= max_error_px:
@@ -118,16 +148,18 @@ def plot_trajectory(records: list[dict], output: Path) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    valid = [r for r in records if r["quality"] == "ok"]
     fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    times = [r["timestamp_s"] for r in records]
     for field, axis, units in [("translation_m", axes[0], "m"),
                                ("rotation_vector_rad", axes[1], "rad")]:
         for coordinate, label in enumerate("xyz"):
-            axis.plot([r["timestamp_s"] for r in valid],
-                      [r[field][coordinate] for r in valid], ".-", label=label)
+            axis.plot(times,
+                      [r[field][coordinate] if r["quality"] == "ok" else np.nan
+                       for r in records], ".-", label=label)
         axis.set_ylabel(units)
         axis.grid(True)
         axis.legend()
+    axes[0].set_title("Blank spans indicate missing or rejected marker poses")
     axes[1].set_xlabel("Video time (s)")
     fig.tight_layout()
     fig.savefig(output)
@@ -137,7 +169,8 @@ def plot_trajectory(records: list[dict], output: Path) -> None:
 def track_video(source: str, calibration_path: Path, output_dir: Path,
                 *, usb_marker_m: float, port_marker_m: float = 0.050,
                 max_error_px: float = 5.0, max_frames: int | None = None,
-                save_frames: bool = True, write_annotated: bool = True) -> dict:
+                save_frames: bool = True, write_annotated: bool = True,
+                marker_tip: np.ndarray | None = None) -> dict:
     if usb_marker_m <= 0 or port_marker_m <= 0:
         raise ValueError("Marker side lengths must be positive")
     calibration = load_calibration(calibration_path)
@@ -157,6 +190,7 @@ def track_video(source: str, calibration_path: Path, output_dir: Path,
         frames_dir.mkdir(exist_ok=True)
     records = []
     previous_poses: dict[str, np.ndarray] = {}
+    missing_streak = {"usb": 0, "port": 0}
     writer = None
     started = time.monotonic()
     live = source.isdecimal()
@@ -177,7 +211,16 @@ def track_video(source: str, calibration_path: Path, output_dir: Path,
                                 records[-1]["timestamp_s"] + 1 / fps if records else 0)
             record, annotated = detect_pair(frame, detector, matrix, distortion,
                                             usb_marker_m, port_marker_m, max_error_px,
-                                            previous_poses, annotate=write_annotated)
+                                            previous_poses, annotate=write_annotated,
+                                            marker_tip=marker_tip)
+            for label in ("usb", "port"):
+                if (label in record["markers"] and
+                        record["markers"][label]["reprojection_error_px"] <= max_error_px):
+                    missing_streak[label] = 0
+                else:
+                    missing_streak[label] += 1
+                    if missing_streak[label] > 4:
+                        previous_poses.pop(label, None)
             frame_name = f"frame_{index:06d}.jpg"
             if save_frames:
                 cv2.imwrite(str(frames_dir / frame_name), frame)
@@ -206,6 +249,7 @@ def track_video(source: str, calibration_path: Path, output_dir: Path,
         "calibration_file": "calibration.json", "image_size_wh": calibration["image_size_wh"],
         "dictionary": "DICT_4X4_50", "usb_marker_id": 0, "port_marker_id": 1,
         "usb_marker_m": usb_marker_m, "port_marker_m": port_marker_m,
+        "pose_prior_marker_tip": None if marker_tip is None else marker_tip.tolist(),
         "frames": len(records), "valid_relative_poses": sum(r["quality"] == "ok" for r in records),
         "frame_convention": "T_A_B maps B coordinates into A; OpenCV camera x-right y-down z-forward",
         "timestamps": "video presentation time in seconds; monotonic clock for live camera",

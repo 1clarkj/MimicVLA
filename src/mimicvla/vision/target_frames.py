@@ -35,6 +35,13 @@ def provisional_mounts() -> tuple[np.ndarray, np.ndarray]:
     return port, marker_tip
 
 
+def marker_tip_with_x_offset(x_mm: float) -> np.ndarray:
+    """Return T_marker0_tip with a batch-specific X offset in marker axes."""
+    _, marker_tip = provisional_mounts()
+    marker_tip[0, 3] = x_mm / 1000
+    return marker_tip
+
+
 def socket_from_tip(record: dict, port_mount: np.ndarray,
                     marker_tip: np.ndarray) -> np.ndarray | None:
     """Convert a tracked marker pair into the task's relative target pose."""
@@ -44,22 +51,45 @@ def socket_from_tip(record: dict, port_mount: np.ndarray,
 
 
 def inspect_frame(trajectory: Path, calibration_path: Path, frame_index: int,
-                  output: Path) -> dict:
+                  output: Path, *, tip_x_mm: float = 0.0) -> dict:
     """Draw proposed socket and tip frames on one original video frame."""
     records = [json.loads(line) for line in trajectory.read_text().splitlines()]
     record = records[frame_index]
     if record["quality"] != "ok":
         raise ValueError(f"Frame {frame_index} has quality {record['quality']}")
-    frame = cv2.imread(str(trajectory.parent / record["rgb_file"]))
+    frame_file = record.get("rgb_file")
+    frame = cv2.imread(str(trajectory.parent / frame_file)) if frame_file else None
+    if frame is None:
+        metadata_file = trajectory.parent / "metadata.json"
+        if not metadata_file.exists():
+            raise ValueError("Original frame and tracking source metadata are missing")
+        source = json.loads(metadata_file.read_text())["source"]
+        capture = cv2.VideoCapture(source)
+        try:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            ok, frame = capture.read()
+        finally:
+            capture.release()
+        if not ok:
+            frame = None
     if frame is None:
         raise ValueError("Original frame is missing")
     calibration = load_calibration(calibration_path)
     camera = np.asarray(calibration["camera_matrix"], dtype=float)
     distortion = np.asarray(calibration["distortion_coefficients"], dtype=float)
-    port_mount, marker_tip = provisional_mounts()
+    port_mount, _ = provisional_mounts()
+    marker_tip = marker_tip_with_x_offset(tip_x_mm)
+    markers = record["markers"]
+    port_record = markers.get("port", markers.get("1"))
+    if port_record is None:
+        raise ValueError("Port marker pose is missing")
+    camera_port = np.asarray(port_record["T_camera_marker"])
+    usb_record = markers.get("usb")
+    camera_usb = (np.asarray(usb_record["T_camera_marker"]) if usb_record is not None else
+                  camera_port @ np.asarray(record["T_port_usb_marker"]))
     targets = {
-        "socket_target": np.asarray(record["markers"]["port"]["T_camera_marker"]) @ inverse(port_mount),
-        "usb_tip": np.asarray(record["markers"]["usb"]["T_camera_marker"]) @ marker_tip,
+        "socket_target": camera_port @ inverse(port_mount),
+        "usb_tip": camera_usb @ marker_tip,
     }
     for name, transform in targets.items():
         rvec, _ = cv2.Rodrigues(transform[:3, :3])
@@ -81,4 +111,5 @@ def inspect_frame(trajectory: Path, calibration_path: Path, frame_index: int,
     relative = socket_from_tip(record, port_mount, marker_tip)
     return {"output": str(output), "frame_index": frame_index,
             "T_socket_usb_tip": relative.tolist(),
-            "note": "USB tip position uses [0, +30, -3] mm in detected marker axes; orientation is provisional."}
+            "note": (f"USB tip position uses [{tip_x_mm:+g}, +30, -3] mm in detected "
+                     "marker axes; orientation is provisional.")}

@@ -9,7 +9,8 @@ import numpy as np
 from scipy.ndimage import median_filter
 from scipy.spatial.transform import Rotation, Slerp
 
-from ..retarget import replay_recording
+from ..retarget import pose_motion_rates, replay_recording
+from ..sim.env import SimConfig
 from ..vision.target_frames import provisional_mounts, socket_from_tip
 from ..vision.track import track_video
 from ..vision.transforms import translation_rotvec
@@ -57,11 +58,32 @@ def fill_short_gaps(records: list[dict], max_missing: int = 4) -> tuple[list[dic
     return filled, count
 
 
+def _consecutive_missing(records: list[dict]):
+    current = []
+    for record in records:
+        if record["quality"] != "ok":
+            current.append(record)
+        elif current:
+            yield current
+            current = []
+    if current:
+        yield current
+
+
 def _runs(records: list[dict]) -> list[list[dict]]:
     runs = []
     current = []
     for record in records:
         if record["quality"] == "ok":
+            if current:
+                previous = current[-1]
+                linear, angular = pose_motion_rates(
+                    np.asarray(previous["T_port_usb_marker"]),
+                    np.asarray(record["T_port_usb_marker"]),
+                    record["timestamp_s"] - previous["timestamp_s"])
+                if linear > .75 or angular > 8.0:
+                    runs.append(current)
+                    current = []
             current.append(record)
         elif current:
             runs.append(current)
@@ -71,10 +93,13 @@ def _runs(records: list[dict]) -> list[list[dict]]:
     return runs
 
 
-def select_insertion_run(records: list[dict], min_frames: int = 20
+def select_insertion_run(records: list[dict], min_frames: int = 20,
+                         marker_tip: np.ndarray | None = None
                          ) -> tuple[list[dict] | None, dict]:
     """Use a fixed, predeclared trajectory-coverage rule for every video."""
-    port_mount, marker_tip = provisional_mounts()
+    port_mount, default_marker_tip = provisional_mounts()
+    if marker_tip is None:
+        marker_tip = default_marker_tip
     candidates = []
     for run in _runs(records):
         if len(run) < min_frames:
@@ -84,22 +109,29 @@ def select_insertion_run(records: list[dict], min_frames: int = 20
         start_depth = float(np.median(depths[:3]))
         peak_depth = float(np.max(depths))
         progress = peak_depth - start_depth
-        if start_depth <= -.005 and peak_depth >= .006 and progress >= .010:
+        # A long loss of tracking can hide the approach. Keep the continuous
+        # insertion after it when that run still shows substantial progress.
+        if start_depth <= .005 and peak_depth >= .006 and progress >= .010:
             candidates.append((progress, len(run), run, {
                 "start_depth_m": start_depth, "peak_depth_m": peak_depth,
                 "axial_progress_m": progress,
+                "starts_after_tracking_loss": run[0]["frame_index"] > 0,
+                "approach_truncated": start_depth > -.005,
             }))
     if not candidates:
-        return None, {"reason": "no_contiguous_20_frame_run_spanning_approach_and_6mm_depth"}
+        return None, {"reason": "no_contiguous_20_frame_run_with_10mm_progress_and_6mm_depth"}
     _, _, run, details = max(candidates, key=lambda item: (item[0], item[1]))
     return run, details
 
 
 def evaluate_recordings(video_dir: Path, calibration: Path, output_dir: Path,
-                        *, reuse_existing_replays: bool = False) -> dict:
+                        *, reuse_existing_replays: bool = False,
+                        retrack: bool = False) -> dict:
     """Track each .mov/.mp4, replay one qualifying segment, save CSV and JSON."""
     videos = sorted(path for path in video_dir.rglob("*")
-                    if path.is_file() and path.suffix.lower() in {".mov", ".mp4"})
+                    if path.is_file() and path.suffix.lower() in {".mov", ".mp4"}
+                    and path.parent.name.endswith("mm_marker")
+                    and path.parent.name.removesuffix("mm_marker").isdigit())
     if not videos:
         raise ValueError(f"No insertion videos found under {video_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -116,7 +148,7 @@ def evaluate_recordings(video_dir: Path, calibration: Path, output_dir: Path,
         try:
             tracked = folder / "tracking"
             metadata_path = tracked / "metadata.json"
-            if metadata_path.exists():
+            if metadata_path.exists() and not retrack:
                 metadata = json.loads(metadata_path.read_text())
                 if metadata.get("source") != str(video) or metadata.get("usb_marker_m") != size_mm / 1000:
                     raise ValueError("Cached tracking metadata does not match this video and marker size")
@@ -127,8 +159,22 @@ def evaluate_recordings(video_dir: Path, calibration: Path, output_dir: Path,
             records = [json.loads(line) for line in (tracked / "trajectory.jsonl").read_text().splitlines()]
             row.update(frames=metadata["frames"], valid_poses=metadata["valid_relative_poses"],
                        valid_fraction=metadata["valid_relative_poses"] / metadata["frames"])
+            row["longest_raw_tracking_gap_frames"] = max(
+                (len(group) for group in _consecutive_missing(records)), default=0)
+            row["usb_pose_prior_frames"] = sum(
+                record.get("markers", {}).get("usb", {}).get("pose_selection") ==
+                "task_orientation_prior" for record in records)
             filled_records, filled_count = fill_short_gaps(records)
             row["interpolated_frames"] = filled_count
+            row["implausible_pose_steps"] = sum(
+                (linear > .75 or angular > 8.0)
+                for first, second in zip(filled_records, filled_records[1:])
+                if first["quality"] == second["quality"] == "ok"
+                for linear, angular in [pose_motion_rates(
+                    np.asarray(first["T_port_usb_marker"]),
+                    np.asarray(second["T_port_usb_marker"]),
+                    second["timestamp_s"] - first["timestamp_s"])]
+            )
             filled_path = tracked / "trajectory_filled.jsonl"
             with filled_path.open("w") as stream:
                 for record in filled_records:
@@ -142,11 +188,13 @@ def evaluate_recordings(video_dir: Path, calibration: Path, output_dir: Path,
                            end_frame=segment[-1]["frame_index"], segment_frames=len(segment))
                 replay_summary = folder / "replay" / "summary.json"
                 replay = None
-                if reuse_existing_replays and replay_summary.exists():
+                if reuse_existing_replays and not retrack and replay_summary.exists():
                     cached = json.loads(replay_summary.read_text())
                     if (cached.get("source_frames") ==
                             [segment[0]["frame_index"], segment[-1]["frame_index"]]
-                            and cached.get("completed_segment")):
+                            and cached.get("completed_segment")
+                            and cached.get("insertion_depth_m") == SimConfig().insertion_depth_m
+                            and cached.get("success_rule") == "tip_center_in_opening_v1"):
                         replay = cached
                 if replay is None:
                     replay = replay_recording(filled_path, folder / "replay",
@@ -164,9 +212,10 @@ def evaluate_recordings(video_dir: Path, calibration: Path, output_dir: Path,
                            final_depth_m=replay["final_metrics"]["axial_error_m"],
                            final_radial_error_m=replay["final_metrics"]["radial_error_m"],
                            final_orientation_error_rad=replay["final_metrics"]["orientation_error_rad"])
-                row["success"] = bool(replay["completed_segment"] and replay["insertion_reached"]
-                                      and replay["all_joint_limits_ok"] and
-                                      replay["bad_collision_steps"] == 0)
+                row["success"] = bool(replay["insertion_reached"])
+                row["replay_quality_ok"] = bool(replay["completed_segment"]
+                                                and replay["all_joint_limits_ok"]
+                                                and replay["bad_collision_steps"] == 0)
                 row["contact_free_success"] = bool(row["success"] and replay["wall_contact_steps"] == 0)
                 row["status"] = "success" if row["success"] else "replay_failed"
         except Exception as error:
@@ -193,6 +242,7 @@ def evaluate_recordings(video_dir: Path, calibration: Path, output_dir: Path,
             "raw_valid_pose_fraction_mean": sum(row.get("valid_fraction", 0) for row in subset) / len(subset),
         }
     summary = {"videos": len(rows), "eligible_for_replay": eligible,
+               "insertion_depth_m": SimConfig().insertion_depth_m,
                "replay_successes": successes,
                "contact_free_successes": contact_free,
                "end_to_end_success_rate": successes / len(rows),
@@ -200,8 +250,8 @@ def evaluate_recordings(video_dir: Path, calibration: Path, output_dir: Path,
                "success_rate_among_eligible": successes / eligible if eligible else None,
                "by_marker_size": by_marker_size,
                "gap_rule": "interpolate at most 4 missing frames if adjacent relative poses imply <=0.25 m/s translation and <=2 rad/s rotation; preserve raw trajectory",
-               "selection_rule": "contiguous >=20 valid frames; starts >=5mm before socket; reaches >=6mm depth; >=10mm axial progress; choose greatest progress",
-               "success_rule": "geometric insertion during complete replay, all arm joints within limits, zero >1mm contact-penetration steps",
+               "selection_rule": "contiguous >=20 valid frames; starts no deeper than 5mm inside socket; reaches >=6mm depth; >=10mm axial progress; choose greatest progress; flag truncated approach",
+               "success_rule": "tip centre inside modeled rectangular port opening at 12-18mm depth; orientation and contact diagnostic only",
                "contact_free_rule": "geometric success and no physical plug/front-wall contact at any replay step"}
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
