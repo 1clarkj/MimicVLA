@@ -84,7 +84,7 @@ fault:
 
 The target was at least 70 clips. 17.4 × 5.1 mm is the smallest area that
 reaches it, but leaves 0.3 mm over the plug height and most of its replays
-exceed 100 N; 14 × 7 mm has no margin. **15 × 7 mm without a funnel** keeps
+exceed 100 N; 14 × 7 mm has no margin. **15 × 7 mm** keeps
 75. 72 of them replay completely and cleanly (the plug ends at least 12 mm
 deep). This is the training set. **All results below use this widened port.** It is easier than
 the real task, and I report it as a limitation, not a detail.
@@ -253,4 +253,4 @@ gives a 500 ms budget. Reducing to 5 steps (71 ms) is within noise of 10;
 - Human recordings, tracking and per-clip labels:
   [`<HF_USER>/mimicvla-human-usb-raw`](https://huggingface.co/datasets/<HF_USER>/mimicvla-human-usb-raw)
 - LeRobot training set (72 MuJoCo episodes, two cameras):
-  [`<HF_USER>/mimicvla-panda-usb-15x7`](https://huggingface.co/datasets/<HF_USER>/mimicvla-panda-usb-15x7)
+  [`<HF_USER>/mimicvla-panda-usb`](https://huggingface.co/datasets/<HF_USER>/mimicvla-panda-usb)

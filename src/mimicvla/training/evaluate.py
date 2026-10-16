@@ -1,4 +1,4 @@
-"""Run a trained LeRobot policy closed-loop in the 15 x 7 mm no-funnel sim.
+"""Run a trained LeRobot policy closed-loop in the 15 x 7 mm port sim.
 
 Each rollout starts from the same aligned state as a dataset episode (the
 source replay's alignment prefix is executed first), then the policy drives
@@ -147,7 +147,7 @@ def main() -> None:
                         help="e.g. outputs/train/RUN/checkpoints/last/pretrained_model")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--dataset-dir", type=Path,
-                        default=Path("data/mimicvla-panda-usb-15x7"),
+                        default=Path("data/mimicvla-panda-usb"),
                         help="dataset whose episodes supply the start states")
     parser.add_argument("--split", choices=["holdout", "train", "all"], default="holdout")
     parser.add_argument("--episodes", type=int, nargs="*",

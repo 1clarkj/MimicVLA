@@ -8,7 +8,7 @@
 #   latency   chunk latency vs denoising steps
 #   summary   tables, bootstrap intervals and figures
 # Needs `mimicvla download --raw`. The 72-episode training set and the 55
-# excluded start states are the published data/mimicvla-panda-usb-15x7.
+# excluded start states are the published data/mimicvla-panda-usb.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD/src" MUJOCO_GL=egl
@@ -17,7 +17,7 @@ PY=.venv/bin/python
 TRAIN=outputs/train
 EVAL=outputs/policy_eval_multiseed
 RAW=data/mimicvla-human-usb-raw
-ALL72=data/mimicvla-panda-usb-15x7
+ALL72=data/mimicvla-panda-usb
 EXC55=$ALL72/eval_starts/excluded55
 D=outputs/datasets
 LOWPASS=$TRAIN/lowpass_bs32_20k/checkpoints/020000/pretrained_model

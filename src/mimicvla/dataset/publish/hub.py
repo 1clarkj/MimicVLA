@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-LEROBOT = "mimicvla-panda-usb-15x7"
+LEROBOT = "mimicvla-panda-usb"
 RAW = "mimicvla-human-usb-raw"
 POLICY = "mimicvla-smolvla-usb"
 DEFAULT_OWNER = "1clarkj"

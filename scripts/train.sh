@@ -3,7 +3,7 @@
 # (src/mimicvla/dataset/splits.py) are excluded automatically.
 #   bash scripts/train.sh RUN_NAME STEPS [DATASET] [BATCH_SIZE]
 # DATASET is a dataset folder or a name under outputs/datasets/. Default: the
-# downloaded data/mimicvla-panda-usb-15x7 (`mimicvla download`).
+# downloaded data/mimicvla-panda-usb (`mimicvla download`).
 # TRAIN_SUBSET=train16 trains on a nested 16-clip subset (data scaling curve);
 # DECAY_STEPS overrides the learning-rate decay horizon (default STEPS).
 set -euo pipefail
@@ -14,7 +14,7 @@ run_name="${1:?$usage}"
 steps="${2:?$usage}"
 dataset="${3:-}"
 batch_size="${4:-32}"
-[[ -n "$dataset" ]] || dataset=data/mimicvla-panda-usb-15x7
+[[ -n "$dataset" ]] || dataset=data/mimicvla-panda-usb
 [[ -d "$dataset" ]] || dataset="outputs/datasets/$dataset"
 dataset_dir="$(cd "$dataset" && pwd)"
 dataset_id="$(basename "$dataset_dir")"

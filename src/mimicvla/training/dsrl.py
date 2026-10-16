@@ -1,4 +1,4 @@
-"""DSRL post-training of a frozen SmolVLA in the 15 x 7 mm no-funnel sim.
+"""DSRL post-training of a frozen SmolVLA in the 15 x 7 mm port sim.
 
 Diffusion steering via RL (Wagenmaker et al., CoRL 2025): the VLA's weights
 never change. SAC learns a small policy that picks the *initial noise* of the
@@ -44,7 +44,7 @@ from mimicvla.dataset.lerobot import TASK
 from mimicvla.sim.env import PandaUSBEnv, SimConfig, insertion_success_from_metrics
 
 
-DATASET = Path("data/mimicvla-panda-usb-15x7")
+DATASET = Path("data/mimicvla-panda-usb")
 
 
 # ---------------------------------------------------------------- environment

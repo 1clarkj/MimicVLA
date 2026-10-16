@@ -164,7 +164,7 @@ with your own data every episode is used for training.
 
 ## Data
 
-- [`1clarkj/mimicvla-panda-usb-15x7`](https://huggingface.co/datasets/1clarkj/mimicvla-panda-usb-15x7):
+- [`1clarkj/mimicvla-panda-usb`](https://huggingface.co/datasets/1clarkj/mimicvla-panda-usb):
   the 72-episode LeRobot training set and the evaluation start states.
 - [`1clarkj/mimicvla-human-usb-raw`](https://huggingface.co/datasets/1clarkj/mimicvla-human-usb-raw):
   the 134 iPhone recordings with per-frame tracking, setup files and per-clip

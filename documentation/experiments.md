@@ -17,7 +17,7 @@ executes 10 of each 50-action chunk before re-planning (`--n-action-steps`).
 Start sets:
 
 - **Training starts (64)**: the clips of the 72-episode training set
-  (`1clarkj/mimicvla-panda-usb-15x7`) used for training.
+  (`1clarkj/mimicvla-panda-usb`) used for training.
 - **Holdout (8)**: clips of the same dataset that no model trained on
   (`mimicvla.dataset.splits`, seed 2026, stratified by recording session).
   Too few to rank models.
@@ -360,7 +360,7 @@ per-step rotation jitter and keeps each clip's net motion within about 1 mm.
 The cost: 17 of 72 clips no longer insert in the 15 × 7 mm port. Most stall on
 the rim 0–1 mm deep, 5–12 mm off-centre. Filtering only position or only
 orientation breaks different clips, and cutoffs up to 6 Hz do not recover
-them. Success through this funnel-less port depends on fine detail of the raw
+them. Success through this tight port depends on fine detail of the raw
 motion, possibly the small wiggle the jitter adds.
 
 Even so, the low-pass model is the best so far: 55/72 (76%) at 20k and 57/72
@@ -468,7 +468,7 @@ evaluations and summaries in order. Single steps:
 bash scripts/train.sh RUN STEPS [DATASET_ID] [BATCH]
 # evaluate one seed on a start set
 MUJOCO_GL=egl .venv/bin/python -m mimicvla.training.evaluate CKPT \
-  --dataset-dir data/mimicvla-panda-usb-15x7/eval_starts/excluded55 --split all \
+  --dataset-dir data/mimicvla-panda-usb/eval_starts/excluded55 --split all \
   --n-action-steps 10 --no-video --seed 0 --output-dir OUT
 # tables, intervals and figures
 .venv/bin/python -m mimicvla.training.report

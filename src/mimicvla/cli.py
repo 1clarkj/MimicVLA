@@ -126,7 +126,7 @@ def main() -> None:
     elif args.command == "build-dataset":
         build.run(args)
     elif args.command == "evaluate":
-        dataset = Path("data/mimicvla-panda-usb-15x7")
+        dataset = Path("data/mimicvla-panda-usb")
         if not dataset.exists():
             raise SystemExit("Run `mimicvla download` first")
         start_dir, split = {"excluded": (dataset / "eval_starts/excluded55", "all"),

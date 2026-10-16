@@ -27,7 +27,7 @@ from mimicvla.dataset.splits import split_indices, train_subset
 
 
 ROOT = Path("outputs/policy_eval_multiseed")
-DATASET = Path("data/mimicvla-panda-usb-15x7")
+DATASET = Path("data/mimicvla-panda-usb")
 FIGURES = Path("documentation/figures")
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"

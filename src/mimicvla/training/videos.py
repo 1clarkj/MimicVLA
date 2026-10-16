@@ -49,8 +49,8 @@ from mimicvla.vision.transforms import inverse
 
 
 DATA = Path("data")
-SETS = {"all72": DATA / "mimicvla-panda-usb-15x7",
-        "excluded55": DATA / "mimicvla-panda-usb-15x7/eval_starts/excluded55"}
+SETS = {"all72": DATA / "mimicvla-panda-usb",
+        "excluded55": DATA / "mimicvla-panda-usb/eval_starts/excluded55"}
 RAW = DATA / "mimicvla-human-usb-raw"
 FPS = 20
 SIM_PX = 480
