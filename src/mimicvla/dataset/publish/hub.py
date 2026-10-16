@@ -1,6 +1,6 @@
 """Upload the staged datasets and policy to the Hugging Face Hub, or download them.
 
-    python -m mimicvla.dataset.publish.hub upload --owner HF_USER [--raw] [--policy CKPT]
+    python -m mimicvla.dataset.publish.hub upload --owner HF_USER [--raw] [--policy]
     mimicvla download [--raw] [--policy]
 
 Downloads go to data/: the LeRobot training set with its evaluation start
@@ -19,15 +19,15 @@ DEFAULT_OWNER = "<HF_USER>"
 STAGED = Path("outputs/hf_upload")
 
 
-def upload(owner: str, raw: bool, policy: Path | None) -> None:
+def upload(owner: str, raw: bool, policy: bool) -> None:
     from huggingface_hub import HfApi
 
     api = HfApi()
     repos = [(LEROBOT, "dataset", STAGED / LEROBOT)]
     if raw:
         repos.append((RAW, "dataset", STAGED / RAW))
-    if policy is not None:
-        repos.append((POLICY, "model", policy))
+    if policy:
+        repos.append((POLICY, "model", STAGED / POLICY))
     for name, kind, folder in repos:
         repo_id = f"{owner}/{name}"
         api.create_repo(repo_id, repo_type=kind, exist_ok=True)
@@ -55,7 +55,7 @@ def main() -> None:
     up = commands.add_parser("upload")
     up.add_argument("--owner", required=True)
     up.add_argument("--raw", action="store_true", help="also upload the raw recordings (6.8 GB)")
-    up.add_argument("--policy", type=Path, help="pretrained_model folder to upload")
+    up.add_argument("--policy", action="store_true", help="also upload the staged policy")
     down = commands.add_parser("download")
     down.add_argument("--owner", default=DEFAULT_OWNER)
     down.add_argument("--raw", action="store_true")

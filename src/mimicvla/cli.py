@@ -99,6 +99,16 @@ def main() -> None:
                       help="marker 0 to tip X offset; inferred for known recording-batch directories")
     dual.add_argument("--reuse-tracking-from", type=Path,
                       help="reuse raw tracking from an earlier dual evaluation")
+    evaluate_policy = commands.add_parser(
+        "evaluate", help="run a trained policy closed loop from a set of start states")
+    evaluate_policy.add_argument("checkpoint", help="pretrained_model folder")
+    evaluate_policy.add_argument("--starts", choices=["excluded", "holdout", "dataset"],
+                                 default="excluded",
+                                 help="excluded: 55 starts from recordings never trained on "
+                                      "(default); holdout: the 8 held-out clips; dataset: all 72")
+    evaluate_policy.add_argument("--seeds", type=int, nargs="+", default=[0])
+    evaluate_policy.add_argument("--output-dir", type=Path, default=Path("outputs/eval"))
+    evaluate_policy.add_argument("--video", action="store_true", help="save a video per rollout")
     download = commands.add_parser("download", help="fetch the published data into data/")
     download.add_argument("--raw", action="store_true", help="also the 134 iPhone recordings (6.8 GB)")
     download.add_argument("--policy", action="store_true", help="also the trained SmolVLA policy")
@@ -163,6 +173,20 @@ def main() -> None:
                                                   marker10_mm=args.marker10_mm,
                                                   tip_x_mm=args.tip_x_mm,
                                                   reuse_tracking_from=args.reuse_tracking_from), indent=2))
+    elif args.command == "evaluate":
+        import subprocess
+        import sys
+        downloaded = Path("data/mimicvla-panda-usb-15x7")
+        dataset = downloaded if downloaded.exists() else Path("outputs/datasets/usb_15x7_no_funnel_full_v2")
+        excluded = (downloaded / "eval_starts/excluded55" if downloaded.exists()
+                    else Path("outputs/eval_sets/excluded_starts_v1"))
+        start_dir, split = {"excluded": (excluded, "all"), "holdout": (dataset, "holdout"),
+                            "dataset": (dataset, "all")}[args.starts]
+        for seed in args.seeds:
+            subprocess.run([sys.executable, "-m", "mimicvla.training.evaluate", args.checkpoint,
+                            "--dataset-dir", str(start_dir), "--split", split, "--seed", str(seed),
+                            "--output-dir", str(args.output_dir / f"{args.starts}_seed{seed}"),
+                            *([] if args.video else ["--no-video"])], check=True)
     elif args.command == "download":
         from .dataset.publish.hub import download
         print(json.dumps(download(raw=args.raw, policy=args.policy), indent=2))
