@@ -152,9 +152,7 @@ Likely reasons, untested:
 
 1. **Fixed step budget.** Both runs train for 10k steps, so with 110 episodes
    each original clip is seen about 40% less often. The training-start drop
-   is consistent with underfitting. The mirror run did complete its
-   learning-rate schedule while `raw_10k` did not (section 2), so the two
-   are not perfectly matched.
+   is consistent with underfitting.
 2. **Mirrored starts may not match test starts.** If real start states
    cluster on one side of the port (one person, one approach habit), mirrored
    data spends capacity on the other side, which the excluded starts rarely
@@ -195,10 +193,8 @@ Interpretation:
 - **Low-pass labels trade generalisation for fit.** They give the best
   training-start success (82%) but cause the most force on new starts.
 - **Caveat:** raw-label cells use the 10k checkpoint, low-pass cells 20k.
-  For raw labels, 10k beat 20k on every start set (section 1). `raw_10k` is
-  halfway through a 20k learning-rate schedule, while `recovery_v2_10k`
-  completed a full 10k schedule (section 2), so the raw row pair is not
-  schedule-matched.
+  For raw labels, 10k beat 20k on every start set (section 1). On the
+  learning-rate schedule of the 10k runs, see section 2.
 
 ## 5. Denoising steps and inference latency
 
