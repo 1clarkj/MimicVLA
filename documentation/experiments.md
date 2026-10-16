@@ -30,7 +30,7 @@ Start sets:
 
 Sections 1–5 use 5 seeds per start. A start's success is its mean over seeds;
 intervals are 95% bootstraps over start states, and differences are paired
-over the same starts. Section 7 records the earlier single-rollout
+over the same starts. Section 6 records the earlier single-rollout
 experiments that led to this protocol.
 
 ## Training runs
@@ -70,24 +70,8 @@ Paired differences (same starts, 95% bootstrap interval):
 - Low-pass + gentle recovery vs low-pass, excluded starts: **+18.2 pts** [+6.5, +29.5].
 - DSRL v2 vs low-pass (random noise), dataset starts: +0.6 pts [-4.4, +5.3].
 
-Interpretation:
-
-1. **Low-pass labels overfit the demonstrated starts.** They give the best
-   numbers on the 72 dataset starts but the worst on unseen starts, with deep
-   collisions in 61% of those rollouts and median peak force above 400 N. The
-   raw-label model is less accurate on the demonstrated starts but degrades
-   less on new ones.
-2. **Recovery data does what DART is meant to do, just not where we first
-   measured it.** On the dataset starts it costs about 16 pts; on unseen starts
-   it is the best policy (52%) and roughly halves the low-pass model's force.
-   This is the classic robustness trade-off of noise-injected demonstrations.
-3. **DSRL did not help.** Neither run (v2 sampled the 16 training starts whose
-   outcome flipped between runs half the time, 60k decisions) moved success,
-   collisions or force beyond seed noise. The base policy's errors on unseen
-   starts are systematic, not a matter of an unlucky noise sample, and noise
-   steering cannot reach them.
-4. **The 8-clip holdout cannot rank these policies.** Its intervals span
-   about 60 pts; the 55 excluded starts are the informative test.
+What these differences mean is discussed in [RESULTS.md](../RESULTS.md),
+steps 2–4.
 
 ## 2. Data scaling
 
@@ -96,12 +80,12 @@ schedule of the 20k run so the 64-demo point is the same checkpoint).
 `mimicvla.dataset.splits` draws nested subsets of the 64 training clips
 (seed 2026): 16 ⊂ 32 ⊂ 64.
 
-| Demos | Policy | Trained starts | Unseen dataset starts | Excluded starts (55) | Deep-collision rollouts (55) | Median peak force (55) |
-|---|---|---|---|---|---|---|
-| 16 | `raw_n16_10k` | 48% [31, 64] | 19% [11, 28] (n=56) | 16% [9, 24] | 75% | 610 N |
-| 32 | `raw_n32_10k` | 45% [34, 56] | 21% [12, 31] (n=40) | 24% [16, 32] | 21% | 285 N |
-| 64 | `raw_10k` | 60% [52, 68] | 57% [30, 82] (n=8) | 49% [39, 59] | 4% | 218 N |
-| 110 (64 + 46 mirrored) | `raw_mirror_10k` | 47% [40, 54] | 48% [25, 70] (n=8) | 40% [32, 49] | 17% | 222 N |
+| Demos | Policy | Trained starts | Excluded starts (55) | Deep-collision rollouts (55) | Median peak force (55) |
+|---|---|---|---|---|---|
+| 16 | `raw_n16_10k` | 48% [31, 64] | 16% [9, 24] | 75% | 610 N |
+| 32 | `raw_n32_10k` | 45% [34, 56] | 24% [16, 32] | 21% | 285 N |
+| 64 | `raw_10k` | 60% [52, 68] | 49% [39, 59] | 4% | 218 N |
+| 110 (64 + 46 mirrored) | `raw_mirror_10k` | 47% [40, 54] | 40% [32, 49] | 17% | 222 N |
 
 Paired differences on the 55 excluded starts:
 
@@ -114,10 +98,10 @@ Interpretation:
 - **More human demonstrations help, and the curve has not flattened.** The
   gain from 32 to 64 is larger than from 16 to 32. Success on unseen starts
   roughly doubles and deep collisions drop from 75% to 4% of rollouts. The
-  64-demo model generalises almost as well as it fits.
+  gap between trained and unseen starts shrinks from about 30 points at 16
+  demos to about 10 at 64.
 - **At 16 and 32 demos the policy memorises.** It reproduces about half of
-  its own starts but only about a fifth of new ones. With 64 demos, the
-  trained-start and unseen-start rates nearly meet.
+  its own starts but only about a fifth of new ones.
 - **The 8-demo point was not run.** Its training job ran out of GPU memory
   while three evaluations shared the GPU, and there was no time to restart it.
 - The obvious next step is more recordings. Each one is a human trajectory,
@@ -244,20 +228,7 @@ Interpretation:
   generalisation ceiling. Faster sampling does not change where the model
   fails.
 
-## 6. Notes on the evaluation
-
-- **Seeded noise.** `mimicvla.training.evaluate` calls `torch.manual_seed(seed)` once
-  per process. The first rollout of a process therefore always draws the same
-  noise. This is expected, but it means a single rollout repeated in a fresh
-  process will always give the same outcome. Per-start rates from 5 seeds are
-  coarse (0, 20, …, 100%). The videos use seed 1 and print each
-  policy's 5-seed record for that start, so a single clip is not mistaken for
-  a rate.
-- **Loaded-GPU timing.** The evaluation also records per-rollout
-  `median_chunk_ms`. While four evaluations share the GPU, it reads about
-  290 ms at 10 steps. Use the idle benchmark above, not those numbers.
-
-## 7. Development history (single rollouts)
+## 6. Development history (single rollouts)
 
 These runs used one rollout per start on the 72 dataset starts. With 72
 starts one standard error is about ±6 points, and with 8 holdout starts one
@@ -282,7 +253,6 @@ They are kept because they explain the choices behind the final runs.
 | `raw_bs32_20k` | 10k | 43/72 (60%) | 39/64 | 4/8 | 1 |
 | `raw_bs32_20k` | 20k | 40/72 (56%)* | 35/64 | 5/8 | 3 |
 | `lowpass_bs32_20k` | 10k | 57/72 (79%) | 52/64 | 5/8 | 15 |
-| `lowpass_bs32_20k` | 15k (stopped at 51) | 46/51 (90%) | 42/46 | 4/5 | 5 |
 | `lowpass_bs32_20k` | **20k** | **55/72 (76%)** | 50/64 | 5/8 | 17 |
 | `recovery_bs32_10k` | 5k | 17/72 (24%) | 14/64 | 3/8 | 52 |
 | `recovery_bs32_10k` | 10k | 18/72 (25%) | 17/64 | 1/8 | 33 |
@@ -324,7 +294,6 @@ The policy cannot reliably reproduce even the motions it trained on.
 | raw 20k | 10 | 40/72 (35/64 + 5/8, separate runs) | 3 |
 | raw 20k | 5 | 40/72 | 4 |
 | raw 20k | 2 | 49/72 | 8 |
-| raw 20k | 2 (seed 1, stopped at 55) | 38/55 | 8 |
 
 Re-planning every 2 steps gave +9 rollouts at 20k but nothing at 10k, and it
 consistently raised deep collisions. The likely cause is that consecutive
@@ -517,24 +486,6 @@ copies pass the gate.
 **Mirror.** Each tracked tip trajectory is reflected across the port's
 vertical mid-plane (`mirror_socket_x` in `src/mimicvla/retarget.py`), then
 retargeted and rendered like an original (section 3).
-
-## Videos
-
-`mimicvla.training.videos` builds the clips in `documentation/videos/`
-(full-quality `.mp4` and a compact `.gif`). Each shows the iPhone recording
-with the ArUco marker axes and projected socket and USB tip, the Panda
-replaying the retargeted motion, and SmolVLA rolled out from the same start
-(seed 1). Every simulation panel is a close three-quarter view with the
-policy's front and wrist cameras below. The outcome appears on the held final
-frame, with the start's result over the 5 evaluation seeds.
-
-| Video | Start | What it shows |
-|---|---|---|
-| `unseen_start_222751` | excluded | the replay misses; the raw policy inserts in 2.7 s (5/5 seeds) |
-| `unseen_start_222751_lowpass_vs_raw` | excluded | same start: low-pass fails (0/5), raw inserts (5/5) |
-| `unseen_start_182731_fail` | excluded | the raw policy fails (0/5) and ends about 5 cm off the port |
-| `holdout_dual_marker_223447` | holdout | two-marker recording; raw policy inserts (5/5) |
-| `holdout_single_marker_194743` | holdout | single-marker recording; raw policy inserts (4/5) |
 
 ## Reproduce
 
