@@ -201,7 +201,7 @@ def main() -> None:
                 "geometry": vars(GEOMETRY), "camera_setup": CAMERA_SETUP,
                 "source_dataset": str(args.source_dataset),
                 "gate": "no flagged deep collision or joint-limit failure, and finishes "
-                        "at least 12 mm deep (the v2 gate)",
+                        "at least 12 mm deep (the build-dataset gate)",
                 "rejected": rejected, "episodes_manifest": kept}
     (output_dir / "capture_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps({"episodes": manifest["episodes"], "frames": manifest["frames"],

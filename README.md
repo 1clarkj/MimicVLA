@@ -44,9 +44,9 @@ src/mimicvla/
                 labels, held-out split, Hugging Face download
   training/     closed-loop evaluation, DSRL, latency benchmark, result tables, videos
   cli.py        the `mimicvla` command
-scripts/        train.sh, reproduce_results.sh, view_sim.sh
+scripts/        train.sh, reproduce_results.sh
 calibration/    printable ChArUco and marker sheets, example setup file
-documentation/  figures, videos and detailed experiment tables
+documentation/  experiments.md (every run in detail), figures, videos
 tests/          unit and integration tests
 ```
 
@@ -71,7 +71,7 @@ it in `data/`.
 ```bash
 uv run mimicvla download --policy        # training set, start states and trained policy
 uv run mimicvla sim-demo                 # scripted insertion → outputs/sim_demo.mp4
-bash scripts/view_sim.sh                 # interactive viewer
+uv run mimicvla sim-view                 # interactive viewer
 
 # Evaluate the trained policy from the 55 start poses it never trained on
 uv run mimicvla evaluate data/mimicvla-smolvla-usb --seeds 0 1 2 3 4
@@ -82,7 +82,8 @@ uv run mimicvla evaluate outputs/train/my_run/checkpoints/last/pretrained_model
 ```
 
 `mimicvla evaluate --starts holdout` uses the 8 held-out clips instead, and
-`--video` saves a video of every rollout.
+`--video` saves a video of every rollout. If the viewer window does not open
+on Linux, prefix it with `LIBGL_ALWAYS_SOFTWARE=1`.
 
 To go back to the human recordings, download them as well
 (`mimicvla download --raw`, 6.8 GB). They include the per-frame tracking, a

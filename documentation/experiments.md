@@ -22,9 +22,9 @@ Start sets:
   (`mimicvla.dataset.splits`, seed 2026, stratified by recording session).
   Too few to rank models.
 - **Excluded starts (55)**: aligned start poses from recordings that never
-  entered any training set (16 failed the 15 × 7 mm replay check, 7 were
-  rejected or held in review, 16 were unreviewed or never reviewed, and 16 others). Only the start
-  pose is used. **This is the main test of generalisation.**
+  entered any training set (32 accepted in review but failed the 15 × 7 mm
+  replay gate, 7 rejected or held in review, 16 never reviewed). Only the
+  start pose is used. **This is the main test of generalisation.**
 
 Sections 1–5 use 5 seeds per start. A start's success is its mean over seeds;
 intervals are 95% bootstraps over start states, and differences are paired
@@ -46,16 +46,10 @@ experiments that led to this protocol.
 All start from `lerobot/smolvla_base` and use both cameras, the 9-D Panda
 state and the 6-D Cartesian action.
 
-
 ## 1. Final comparison
 
-Every policy ran 5 seeds from each start. Success is the mean over starts of
-each start's success rate, with a 95% bootstrap interval over start states.
-"Excluded starts" are 55 aligned start states from recordings that never
-entered any training set (`eval_starts/excluded55` in the published dataset): 16 failed
-the 15 x 7 mm replay check, 7 were rejected or held in review, 3 unreviewed,
-13 never reviewed, and 16 others. Only their start pose is used, so their
-tracking quality after the start does not matter.
+Every policy ran 5 seeds from each start. The excluded starts are
+`eval_starts/excluded55` in the published dataset.
 
 | Policy | Training starts (64) | Holdout (8) | Excluded starts (55) | Deep-collision rollouts (64 / 55) | Median peak force (64 / 55) |
 |---|---|---|---|---|---|
@@ -93,8 +87,6 @@ Interpretation:
 4. **The 8-clip holdout cannot rank these policies.** Its intervals span
    about 60 pts; the 55 excluded starts are the informative test.
 
-
-
 ## 2. Data scaling
 
 Same recipe as `raw_10k` (raw labels, batch 32, 10k steps, learning-rate
@@ -129,7 +121,6 @@ Interpretation:
 - The obvious next step is more recordings. Each one is a human trajectory,
   so this is the cheapest lever available.
 
-
 ## 3. Mirror augmentation: valid, but it did not help
 
 **Why not flip images.** The scene is not left–right symmetric. The fixed
@@ -147,17 +138,15 @@ re-retargeted onto the Panda and re-rendered from the real cameras.
 Every mirrored episode is a physically valid robot demonstration with correct
 images, joint states and actions. It still comes from a human trajectory.
 
-- `mimicvla build-dataset --mirror` → `usb_15x7_mirror`.
-  Of 72 mirrored clips, **48 pass the same 15 × 7 mm replay gate** as the
-  originals. Almost all 24 rejects stall on the rim at about 0 mm depth, the
-  same failure as low-pass breakage. A plausible reason is that the
-  human's fine corrections are not symmetric about the opening. The result is 120 episodes and 13,806 frames.
+- `mimicvla build-dataset --mirror` → `usb_15x7_mirror`: 120 episodes,
+  13,806 frames. Of 72 mirrored clips, **48 pass the same replay gate** as
+  the originals. Almost all 24 rejects stall on the rim at about 0 mm depth,
+  the same failure as low-pass breakage; the human's fine corrections are
+  probably not symmetric about the opening.
 - Mirrors of holdout clips stay in the holdout, so 110 episodes train
   (64 originals + 46 mirrors).
-- **Applied to raw labels**, the data-scaling family. Raw labels give the
-  best policy on unseen starts without recovery data. `lowpass_recovery_20k`
-  (52%) and `raw_10k` (49%) are within noise of each other. Raw labels also keep
-  all 72 clips, while low-pass labels break 17.
+- Applied to raw labels, because they give the best policy without recovery
+  data and keep all 72 clips (low-pass labels break 17).
 
 **Result.** `raw_mirror_10k` is worse than `raw_10k`: −8.7 pts on excluded
 starts [−18.2, +0.7] and −12.5 pts on training starts [−22.2, −3.1]. Deep
@@ -180,13 +169,9 @@ recordings beat synthetic mirrors.
 lighting, so evaluation in sim cannot show a benefit. It belongs to
 sim-to-real transfer, which this project does not test.
 
-
 ## 4. Labels × recovery data (2 × 2)
 
 ![Labels × recovery](figures/labels_x_recovery.png)
-
-The missing cell, raw labels + gentle recovery (`recovery_v2_10k`), now has
-5 seeds.
 
 | Labels | Recovery data | Policy | Training starts (64) | Holdout (8) | Excluded starts (55) | Deep-collision rollouts (64 / 55) | Median peak force (64 / 55) |
 |---|---|---|---|---|---|---|---|
@@ -211,8 +196,7 @@ Interpretation:
 - **Low-pass labels trade generalisation for fit.** They give the best
   training-start success (82%) but cause the most force on new starts.
 - **Caveat:** raw-label cells use the 10k checkpoint, low-pass cells 20k.
-  For raw labels, 10k beat 20k on every start set in the 16 Oct report.
-
+  For raw labels, 10k beat 20k on every start set (section 1).
 
 ## 5. Denoising steps and inference latency
 
@@ -257,25 +241,23 @@ Interpretation:
   generalisation ceiling. Faster sampling does not change where the model
   fails.
 
-
 ## 6. Notes on the evaluation
 
-- **Seeded noise.** `evaluate_policy.py` calls `torch.manual_seed(seed)` once
+- **Seeded noise.** `mimicvla.training.evaluate` calls `torch.manual_seed(seed)` once
   per process. The first rollout of a process therefore always draws the same
   noise. This is expected, but it means a single rollout repeated in a fresh
   process will always give the same outcome. Per-start rates from 5 seeds are
-  coarse (0, 20, …, 100%). The README videos use seed 1 and print each
+  coarse (0, 20, …, 100%). The videos use seed 1 and print each
   policy's 5-seed record for that start, so a single clip is not mistaken for
   a rate.
 - **CPU vs GPU outcomes differ.** Rollouts on the CPU did not reproduce GPU
   outcomes for the same seed. The CPU and CUDA random generators produce
   different noise for the same seed, and kernels differ numerically, so this
-  is expected, but it was not investigated further. All success numbers here are GPU rollouts; the CPU was
-  used only for latency.
-- **Loaded-GPU timing.** `evaluate_policy.py` also records per-rollout
+  is expected, but it was not investigated further. All success numbers here
+  are GPU rollouts; the CPU was used only for latency.
+- **Loaded-GPU timing.** The evaluation also records per-rollout
   `median_chunk_ms`. While four evaluations share the GPU, it reads about
   290 ms at 10 steps. Use the idle benchmark above, not those numbers.
-
 
 ## 7. Development history (single rollouts, 14–15 Oct)
 
@@ -288,10 +270,10 @@ They are kept because they explain the choices behind the final runs.
 
 | Run | Data | Train clips | Batch | Steps |
 |---|---|---|---|---|
-| `no_funnel_baseline_30000` | raw v2 | 72 (no holdout) | 1 | 30k |
-| `raw_bs32_20k` | raw v2 | 64 | 32 | 20k |
+| `no_funnel_baseline_30000` | raw | 72 (no holdout) | 1 | 30k |
+| `raw_bs32_20k` | raw | 64 | 32 | 20k |
 | `lowpass_bs32_20k` | 2 Hz low-pass tracked poses | 49 | 32 | 20k |
-| `recovery_bs32_10k` | raw v2 + DART-style recovery copies (gain 1.0) | 64 (254 episodes) | 32 | 10k |
+| `recovery_bs32_10k` | raw + DART-style recovery copies (gain 1.0) | 64 (254 episodes) | 32 | 10k |
 
 ### Results (all 72 start states, re-plan every 10 steps unless noted)
 
@@ -308,8 +290,8 @@ They are kept because they explain the choices behind the final runs.
 | `recovery_bs32_10k` | 10k | 18/72 (25%) | 17/64 | 1/8 | 33 |
 
 \* Two separate runs: 35/64 on training starts and 5/8 on the holdout.
-"Training starts" here means the 64 v2 training clips. The low-pass model
-trained on only 49 of them (see finding 4). The holdout-only runs of
+"Training starts" here means the 64 training clips. The low-pass model
+trained on only 49 of them (see 4 below). The holdout-only runs of
 `raw_bs32_20k` scored 5/8 at every checkpoint (5k, 10k, 15k, 20k).
 
 ### 1. Batch size was the first-order problem
@@ -389,7 +371,7 @@ look like lateral misses that end pushing on the port face.
 times. Each copy adds an Ornstein–Uhlenbeck offset (about 3 mm and 2° RMS,
 fading to zero within 5 mm of the mouth) to the executed command, and labels
 each frame with the clean command back to the human target. Copy 0 reproduces
-the v2 labels to 2.5e-6, and 254 of 256 copies pass the v2 gate.
+the raw labels to 2.5e-6, and 254 of 256 copies pass the replay gate.
 
 It made the policy much worse: 17/72 (24%) at 5k and 18/72 (25%) at 10k,
 against 29/72 and 43/72 for raw labels at the same steps. Holdout success fell
@@ -406,7 +388,7 @@ the arm's actual pose lags the target.
 The fix is a partial correction per step. `--correction-gain` (default 1.0,
 which is v1) sets the fraction of the offset each label removes. On 5 sample
 clips, gain 0.15 brings label spread back to human scale: 7.0–7.7 mrad and
-1.0–1.2 mm per step, against 7.3 mrad and 0.8–1.3 mm in v2. The robot then
+1.0–1.2 mm per step, against 7.3 mrad and 0.8–1.3 mm for the raw labels. The robot then
 returns over about 0.3 s, with the same noise and the same gate pass rate.
 It was trained afterwards; see the follow-up below and section 4.
 
@@ -439,7 +421,6 @@ All runs on the 72 start states, one rollout each, re-plan every 10 steps.
   holdout) and 26 flip between runs. Differences of ±4/72 are within noise;
   future comparisons need several seeds per start.
 
-
 ## Videos
 
 `mimicvla.training.videos` builds the clips in `documentation/videos/`
@@ -460,16 +441,14 @@ frame, with the start's result over the 5 evaluation seeds.
 
 ## Reproduce
 
-`scripts/reproduce_results.sh` lists the dataset exports, training runs,
-evaluations and summaries in order. Single steps:
+`scripts/reproduce_results.sh` rebuilds the dataset variants, trains every
+run and evaluates it, in order. Single steps:
 
 ```bash
-# train (the 8 holdout clips are excluded automatically)
-bash scripts/train.sh RUN STEPS [DATASET_ID] [BATCH]
-# evaluate one seed on a start set
-MUJOCO_GL=egl .venv/bin/python -m mimicvla.training.evaluate CKPT \
-  --dataset-dir data/mimicvla-panda-usb/eval_starts/excluded55 --split all \
-  --n-action-steps 10 --no-video --seed 0 --output-dir OUT
-# tables, intervals and figures
-.venv/bin/python -m mimicvla.training.report
+bash scripts/train.sh RUN STEPS [DATASET] [BATCH]       # holdout clips excluded automatically
+uv run mimicvla evaluate CKPT --seeds 0 1 2 3 4          # 55 excluded starts
+uv run python -m mimicvla.training.report                # tables, intervals, figures
 ```
+
+Lower-level options (`--n-action-steps`, `--num-steps`) are on
+`python -m mimicvla.training.evaluate --help`.
