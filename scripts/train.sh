@@ -34,7 +34,6 @@ train_episodes="$(PYTHONPATH="$PWD/src" .venv/bin/python -m mimicvla.dataset.spl
 echo "Training on episodes $train_episodes"
 echo "Held out: $(PYTHONPATH="$PWD/src" .venv/bin/python -m mimicvla.dataset.splits "$dataset_dir" holdout)"
 
-export HF_HUB_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 exec .venv/bin/lerobot-train \
     --dataset.repo_id="mimicvla/$dataset_id" \

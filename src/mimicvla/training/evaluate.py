@@ -203,6 +203,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     os.environ.setdefault("HF_HOME", str(Path("outputs/hf_cache").resolve()))
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     main()
